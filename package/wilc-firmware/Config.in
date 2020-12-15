@@ -1,0 +1,6 @@
+config BR2_PACKAGE_WILC_FIRMWARE
+	bool "wilc-firmware"
+	help
+	  Firmware for Microchip Wilc1000 and wilc3000 wireless devices
+
+	  https://github.com/linux4wilc/firmware
