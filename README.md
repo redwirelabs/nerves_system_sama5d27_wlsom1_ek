@@ -15,4 +15,3 @@ https://www.microchip.com/DevelopmentTools/ProductDetails/PartNO/DM320117
 | Ethernet             | Yes                             |
 | Video                | Yes                             |
 | Camera Interface     | Yes - Parallel ISC              |
-
