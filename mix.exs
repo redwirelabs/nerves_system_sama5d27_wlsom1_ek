@@ -72,15 +72,20 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
 
   defp package_files do
     [
-      "CHANGELOG.md",
       "fwup_include",
-      "fwup.conf",
-      "fwup-revert.conf",
-      "LICENSE",
-      "linux-4.4.defconfig",
+      "linux",
+      "package",
       "rootfs_overlay",
+      "uboot",
+      "CHANGELOG.md",
+      "Config.in",
+      "external.mk",
+      "fwup-revert.conf",
+      "fwup.conf",
+      "LICENSE",
       "mix.exs",
       "nerves_defconfig",
+      "post-build.sh",
       "post-createfs.sh",
       "README.md",
       "VERSION"
