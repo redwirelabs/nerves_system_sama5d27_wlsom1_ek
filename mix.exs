@@ -27,7 +27,7 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
   end
 
   defp bootstrap(args) do
-    System.put_env("MIX_TARGET", "bbb")
+    set_target()
     Application.start(:nerves_bootstrap)
     Mix.Task.run("loadconfig", args)
   end
@@ -38,6 +38,7 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
       artifact_sites: [
         {:github_releases, "#{@github_organization}/#{@app}"}
       ],
+      build_runner_opts: build_runner_opts(),
       platform: Nerves.System.BR,
       platform_config: [
         defconfig: "nerves_defconfig"
@@ -48,10 +49,10 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
 
   defp deps do
     [
-      {:nerves, "~> 1.6", runtime: false},
+      {:nerves, "~> 1.5.4 or ~> 1.6.0 or ~> 1.7.0", runtime: false},
       {:nerves_system_br, "1.14.0", runtime: false},
       {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "~> 1.4.0", runtime: false},
-      {:nerves_system_linter, "~> 0.3.0", runtime: false},
+      {:nerves_system_linter, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.18", only: [:dev, :test], runtime: false}
     ]
   end
@@ -90,5 +91,21 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
       "README.md",
       "VERSION"
     ]
+  end
+
+  defp build_runner_opts() do
+    if primary_site = System.get_env("BR2_PRIMARY_SITE") do
+      [make_args: ["BR2_PRIMARY_SITE=#{primary_site}"]]
+    else
+      []
+    end
+  end
+
+  defp set_target() do
+    if function_exported?(Mix, :target, 1) do
+      apply(Mix, :target, [:target])
+    else
+      System.put_env("MIX_TARGET", "sama5d27_wlsom1_ek")
+    end
   end
 end
