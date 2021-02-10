@@ -2,8 +2,8 @@
 
 https://www.microchip.com/DevelopmentTools/ProductDetails/PartNO/DM320117
 
-![ATSAMA5D27-WLSOM1 Evaluation Kit image](assets/images/191126-MPU-PHOTO-ATSAMA5D27-WLSOM1-EK1 Evaluation Kit-Angle-5x7.jpg)
-<br><sup>[Image credit](#microchip)</sup>
+![ATSAMA5D27-WLSOM1 Evaluation Kit image](assets/images/ATSAMA5D27-WLSOM1.jpg)
+<br><sup>[Image credit](https://www.microchip.com/_ImagedCopy/191126-MPU-PHOTO-ATSAMA5D27-WLSOM1-EK1%20Evaluation%20Kit-Angle-5x7.jpg)</sup>
 
 | Feature              | Description                     |
 | -------------------- | ------------------------------- |
