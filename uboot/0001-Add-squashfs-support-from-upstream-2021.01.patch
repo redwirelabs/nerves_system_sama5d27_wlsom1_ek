@@ -1,0 +1,3377 @@
+From 13c0c426e1b6333a4c3917979e7601aa5ea07649 Mon Sep 17 00:00:00 2001
+From: Justin Schneck <jschneck@mac.com>
+Date: Sat, 20 Feb 2021 17:37:28 -0500
+Subject: [PATCH] Add squashfs support from upstream 2021.01
+
+---
+ cmd/Kconfig                                   |    6 +
+ cmd/Makefile                                  |    1 +
+ cmd/sqfs.c                                    |   42 +
+ common/spl/Kconfig                            |    9 +
+ fs/Kconfig                                    |    2 +
+ fs/Makefile                                   |    1 +
+ fs/fs.c                                       |   22 +
+ fs/squashfs/Kconfig                           |   11 +
+ fs/squashfs/Makefile                          |    7 +
+ fs/squashfs/sqfs.c                            | 1708 +++++++++++++++++
+ fs/squashfs/sqfs_decompressor.c               |  155 ++
+ fs/squashfs/sqfs_decompressor.h               |   61 +
+ fs/squashfs/sqfs_dir.c                        |   93 +
+ fs/squashfs/sqfs_filesystem.h                 |  310 +++
+ fs/squashfs/sqfs_inode.c                      |  161 ++
+ fs/squashfs/sqfs_utils.h                      |   49 +
+ include/fs.h                                  |    1 +
+ include/hang.h                                |   22 +
+ include/squashfs.h                            |   26 +
+ include/u-boot/zlib.h                         |   32 +
+ lib/Kconfig                                   |    7 +
+ lib/zlib/inftrees.c                           |   19 +-
+ lib/zlib/trees.c                              |   31 +-
+ lib/zlib/uncompr.c                            |   97 +
+ lib/zlib/zlib.c                               |    3 +
+ lib/zlib/zutil.c                              |    3 +-
+ .../test_fs/test_squashfs/sqfs_common.py      |   76 +
+ .../test_fs/test_squashfs/test_sqfs_load.py   |   46 +
+ .../test_fs/test_squashfs/test_sqfs_ls.py     |   36 +
+ 29 files changed, 3010 insertions(+), 27 deletions(-)
+ create mode 100644 cmd/sqfs.c
+ create mode 100644 fs/squashfs/Kconfig
+ create mode 100644 fs/squashfs/Makefile
+ create mode 100644 fs/squashfs/sqfs.c
+ create mode 100644 fs/squashfs/sqfs_decompressor.c
+ create mode 100644 fs/squashfs/sqfs_decompressor.h
+ create mode 100644 fs/squashfs/sqfs_dir.c
+ create mode 100644 fs/squashfs/sqfs_filesystem.h
+ create mode 100644 fs/squashfs/sqfs_inode.c
+ create mode 100644 fs/squashfs/sqfs_utils.h
+ create mode 100644 include/hang.h
+ create mode 100644 include/squashfs.h
+ create mode 100644 lib/zlib/uncompr.c
+ create mode 100644 test/py/tests/test_fs/test_squashfs/sqfs_common.py
+ create mode 100644 test/py/tests/test_fs/test_squashfs/test_sqfs_load.py
+ create mode 100644 test/py/tests/test_fs/test_squashfs/test_sqfs_ls.py
+
+diff --git a/cmd/Kconfig b/cmd/Kconfig
+index 1e4cf146..5e4d9400 100644
+--- a/cmd/Kconfig
++++ b/cmd/Kconfig
+@@ -1957,6 +1957,12 @@ config CMD_FAT
+ 	help
+ 	  Support for the FAT fs
+ 
++config CMD_SQUASHFS
++	bool "SquashFS command support"
++	select FS_SQUASHFS
++	help
++	  Enables SquashFS filesystem commands (e.g. load, ls).
++
+ config CMD_FS_GENERIC
+ 	bool "filesystem commands"
+ 	help
+diff --git a/cmd/Makefile b/cmd/Makefile
+index 3ac71045..490c5abd 100644
+--- a/cmd/Makefile
++++ b/cmd/Makefile
+@@ -60,6 +60,7 @@ obj-$(CONFIG_CMD_EXT2) += ext2.o
+ obj-$(CONFIG_CMD_FAT) += fat.o
+ obj-$(CONFIG_CMD_FDC) += fdc.o
+ obj-$(CONFIG_CMD_FDT) += fdt.o
++obj-$(CONFIG_CMD_SQUASHFS) += sqfs.o
+ obj-$(CONFIG_CMD_FITUPD) += fitupd.o
+ obj-$(CONFIG_CMD_FLASH) += flash.o
+ obj-$(CONFIG_CMD_FPGA) += fpga.o
+diff --git a/cmd/sqfs.c b/cmd/sqfs.c
+new file mode 100644
+index 00000000..107038c4
+--- /dev/null
++++ b/cmd/sqfs.c
+@@ -0,0 +1,42 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ *
++ * squashfs.c:	implements SquashFS related commands
++ */
++
++#include <command.h>
++#include <fs.h>
++#include <squashfs.h>
++
++static int do_sqfs_ls(struct cmd_tbl *cmdtp, int flag, int argc, char * const argv[])
++{
++	return do_ls(cmdtp, flag, argc, argv, FS_TYPE_SQUASHFS);
++}
++
++U_BOOT_CMD(sqfsls, 4, 1, do_sqfs_ls,
++	   "List files in directory. Default: root (/).",
++	   "<interface> [<dev[:part]>] [directory]\n"
++	   "    - list files from 'dev' on 'interface' in 'directory'\n"
++);
++
++static int do_sqfs_load(struct cmd_tbl *cmdtp, int flag, int argc, char * const argv[])
++{
++	return do_load(cmdtp, flag, argc, argv, FS_TYPE_SQUASHFS);
++}
++
++U_BOOT_CMD(sqfsload, 7, 0, do_sqfs_load,
++	   "load binary file from a SquashFS filesystem",
++	   "<interface> [<dev[:part]> [<addr> [<filename> [bytes [pos]]]]]\n"
++	   "    - Load binary file 'filename' from 'dev' on 'interface'\n"
++	   "      to address 'addr' from SquashFS filesystem.\n"
++	   "      'pos' gives the file position to start loading from.\n"
++	   "      If 'pos' is omitted, 0 is used. 'pos' requires 'bytes'.\n"
++	   "      'bytes' gives the size to load. If 'bytes' is 0 or omitted,\n"
++	   "      the load stops on end of file.\n"
++	   "      If either 'pos' or 'bytes' are not aligned to\n"
++	   "      ARCH_DMA_MINALIGN then a misaligned buffer warning will\n"
++	   "      be printed and performance will suffer for the load."
++);
+diff --git a/common/spl/Kconfig b/common/spl/Kconfig
+index a7241271..3765f387 100644
+--- a/common/spl/Kconfig
++++ b/common/spl/Kconfig
+@@ -550,6 +550,15 @@ config SPL_FS_EXT4
+ 	  filesystem from within SPL. Support for the underlying block
+ 	  device (e.g. MMC or USB) must be enabled separately.
+ 
++config SPL_FS_SQUASHFS
++	bool "Support SquashFS filesystems"
++	select FS_SQUASHFS
++	help
++	  Enable support for SquashFS filesystems with SPL. This permits
++	  U-Boot (or Linux in Falcon mode) to be loaded from a SquashFS
++	  filesystem from within SPL. Support for the underlying block
++	  device (e.g. MMC or USB) must be enabled separately.
++
+ config SPL_FS_FAT
+ 	bool "Support FAT filesystems"
+ 	select FS_FAT
+diff --git a/fs/Kconfig b/fs/Kconfig
+index 1cb9831b..620af7f0 100644
+--- a/fs/Kconfig
++++ b/fs/Kconfig
+@@ -22,4 +22,6 @@ source "fs/cramfs/Kconfig"
+ 
+ source "fs/yaffs2/Kconfig"
+ 
++source "fs/squashfs/Kconfig"
++
+ endmenu
+diff --git a/fs/Makefile b/fs/Makefile
+index 42e669c4..6980894d 100644
+--- a/fs/Makefile
++++ b/fs/Makefile
+@@ -23,5 +23,6 @@ obj-$(CONFIG_SANDBOX) += sandbox/
+ obj-$(CONFIG_CMD_UBIFS) += ubifs/
+ obj-$(CONFIG_YAFFS2) += yaffs2/
+ obj-$(CONFIG_CMD_ZFS) += zfs/
++obj-$(CONFIG_FS_SQUASHFS) += squashfs/
+ endif
+ obj-y += fs_internal.o
+diff --git a/fs/fs.c b/fs/fs.c
+index 0c66d604..f7982710 100644
+--- a/fs/fs.c
++++ b/fs/fs.c
+@@ -19,6 +19,7 @@
+ #include <div64.h>
+ #include <linux/math64.h>
+ #include <efi_loader.h>
++#include <squashfs.h>
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+ 
+@@ -273,6 +274,27 @@ static struct fstype_info fstypes[] = {
+ 		.mkdir = fs_mkdir_unsupported,
+ 		.ln = fs_ln_unsupported,
+ 	},
++#endif
++#if IS_ENABLED(CONFIG_FS_SQUASHFS)
++	{
++		.fstype = FS_TYPE_SQUASHFS,
++		.name = "squashfs",
++		.null_dev_desc_ok = false,
++		.probe = sqfs_probe,
++		.opendir = sqfs_opendir,
++		.readdir = sqfs_readdir,
++		.ls = fs_ls_generic,
++		.read = sqfs_read,
++		.size = sqfs_size,
++		.close = sqfs_close,
++		.closedir = sqfs_closedir,
++		.exists = sqfs_exists,
++		.uuid = fs_uuid_unsupported,
++		.write = fs_write_unsupported,
++		.ln = fs_ln_unsupported,
++		.unlink = fs_unlink_unsupported,
++		.mkdir = fs_mkdir_unsupported,
++	},
+ #endif
+ 	{
+ 		.fstype = FS_TYPE_ANY,
+diff --git a/fs/squashfs/Kconfig b/fs/squashfs/Kconfig
+new file mode 100644
+index 00000000..54ab1618
+--- /dev/null
++++ b/fs/squashfs/Kconfig
+@@ -0,0 +1,11 @@
++config FS_SQUASHFS
++	bool "Enable SquashFS filesystem support"
++	select ZLIB_UNCOMPRESS
++	help
++	  This provides support for reading images from SquashFS filesystem.
++	  Squashfs is a compressed read-only filesystem for Linux.
++	  It uses zlib, lz4, lzo, or xz compression to compress files, inodes
++	  and directories. Squashfs is intended for general read-only
++	  filesystem use, for archival use (i.e. in cases where a .tar.gz file
++	  may be used), and in constrained block device/memory systems (e.g.
++	  embedded systems) where low overhead is needed.
+diff --git a/fs/squashfs/Makefile b/fs/squashfs/Makefile
+new file mode 100644
+index 00000000..ba66ee82
+--- /dev/null
++++ b/fs/squashfs/Makefile
+@@ -0,0 +1,7 @@
++# SPDX-License-Identifier: GPL-2.0+
++#
++
++obj-$(CONFIG_$(SPL_)FS_SQUASHFS) = sqfs.o \
++				sqfs_inode.o \
++				sqfs_dir.o \
++				sqfs_decompressor.o
+diff --git a/fs/squashfs/sqfs.c b/fs/squashfs/sqfs.c
+new file mode 100644
+index 00000000..5de69ac3
+--- /dev/null
++++ b/fs/squashfs/sqfs.c
+@@ -0,0 +1,1708 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ *
++ * sqfs.c: SquashFS filesystem implementation
++ */
++
++#include <asm/unaligned.h>
++#include <errno.h>
++#include <fs.h>
++#include <linux/types.h>
++#include <linux/byteorder/little_endian.h>
++#include <linux/byteorder/generic.h>
++#include <memalign.h>
++#include <stdlib.h>
++#include <string.h>
++#include <squashfs.h>
++#include <part.h>
++
++#include "sqfs_decompressor.h"
++#include "sqfs_filesystem.h"
++#include "sqfs_utils.h"
++
++static struct squashfs_ctxt ctxt;
++
++static int sqfs_disk_read(__u32 block, __u32 nr_blocks, void *buf)
++{
++	ulong ret;
++
++	if (!ctxt.cur_dev)
++		return -1;
++
++	ret = blk_dread(ctxt.cur_dev, ctxt.cur_part_info.start + block,
++			nr_blocks, buf);
++
++	if (ret != nr_blocks)
++		return -1;
++
++	return ret;
++}
++
++static int sqfs_read_sblk(struct squashfs_super_block **sblk)
++{
++	*sblk = malloc_cache_aligned(ctxt.cur_dev->blksz);
++	if (!*sblk)
++		return -ENOMEM;
++
++	if (sqfs_disk_read(0, 1, *sblk) != 1) {
++		free(*sblk);
++		sblk = NULL;
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int sqfs_count_tokens(const char *filename)
++{
++	int token_count = 1, l;
++
++	for (l = 1; l < strlen(filename); l++) {
++		if (filename[l] == '/')
++			token_count++;
++	}
++
++	/* Ignore trailing '/' in path */
++	if (filename[strlen(filename) - 1] == '/')
++		token_count--;
++
++	if (!token_count)
++		token_count = 1;
++
++	return token_count;
++}
++
++/*
++ * Calculates how many blocks are needed for the buffer used in sqfs_disk_read.
++ * The memory section (e.g. inode table) start offset and its end (i.e. the next
++ * table start) must be specified. It also calculates the offset from which to
++ * start reading the buffer.
++ */
++static int sqfs_calc_n_blks(__le64 start, __le64 end, u64 *offset)
++{
++	u64 start_, table_size;
++
++	table_size = le64_to_cpu(end) - le64_to_cpu(start);
++	start_ = le64_to_cpu(start) / ctxt.cur_dev->blksz;
++	*offset = le64_to_cpu(start) - (start_ * ctxt.cur_dev->blksz);
++
++	return DIV_ROUND_UP(table_size + *offset, ctxt.cur_dev->blksz);
++}
++
++/*
++ * Retrieves fragment block entry and returns true if the fragment block is
++ * compressed
++ */
++static int sqfs_frag_lookup(u32 inode_fragment_index,
++			    struct squashfs_fragment_block_entry *e)
++{
++	u64 start, n_blks, src_len, table_offset, start_block;
++	unsigned char *metadata_buffer, *metadata, *table;
++	struct squashfs_fragment_block_entry *entries;
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	unsigned long dest_len;
++	int block, offset, ret;
++	u16 header;
++
++	metadata_buffer = NULL;
++	entries = NULL;
++	table = NULL;
++
++	if (inode_fragment_index >= get_unaligned_le32(&sblk->fragments))
++		return -EINVAL;
++
++	start = get_unaligned_le64(&sblk->fragment_table_start) /
++		ctxt.cur_dev->blksz;
++	n_blks = sqfs_calc_n_blks(sblk->fragment_table_start,
++				  sblk->export_table_start,
++				  &table_offset);
++
++	/* Allocate a proper sized buffer to store the fragment index table */
++	table = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++	if (!table) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	if (sqfs_disk_read(start, n_blks, table) < 0) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	block = SQFS_FRAGMENT_INDEX(inode_fragment_index);
++	offset = SQFS_FRAGMENT_INDEX_OFFSET(inode_fragment_index);
++
++	/*
++	 * Get the start offset of the metadata block that contains the right
++	 * fragment block entry
++	 */
++	start_block = get_unaligned_le64(table + table_offset + block *
++					 sizeof(u64));
++
++	start = start_block / ctxt.cur_dev->blksz;
++	n_blks = sqfs_calc_n_blks(cpu_to_le64(start_block),
++				  sblk->fragment_table_start, &table_offset);
++
++	metadata_buffer = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++	if (!metadata_buffer) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	if (sqfs_disk_read(start, n_blks, metadata_buffer) < 0) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	/* Every metadata block starts with a 16-bit header */
++	header = get_unaligned_le16(metadata_buffer + table_offset);
++	metadata = metadata_buffer + table_offset + SQFS_HEADER_SIZE;
++
++	if (!metadata || !header) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	entries = malloc(SQFS_METADATA_BLOCK_SIZE);
++	if (!entries) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	if (SQFS_COMPRESSED_METADATA(header)) {
++		src_len = SQFS_METADATA_SIZE(header);
++		dest_len = SQFS_METADATA_BLOCK_SIZE;
++		ret = sqfs_decompress(&ctxt, entries, &dest_len, metadata,
++				      src_len);
++		if (ret) {
++			ret = -EINVAL;
++			goto out;
++		}
++	} else {
++		memcpy(entries, metadata, SQFS_METADATA_SIZE(header));
++	}
++
++	*e = entries[offset];
++	ret = SQFS_COMPRESSED_BLOCK(e->size);
++
++out:
++	free(entries);
++	free(metadata_buffer);
++	free(table);
++
++	return ret;
++}
++
++/*
++ * The entry name is a flexible array member, and we don't know its size before
++ * actually reading the entry. So we need a first copy to retrieve this size so
++ * we can finally copy the whole struct.
++ */
++static int sqfs_read_entry(struct squashfs_directory_entry **dest, void *src)
++{
++	struct squashfs_directory_entry *tmp;
++	u16 sz;
++
++	tmp = src;
++	sz = get_unaligned_le16(src + sizeof(*tmp) - sizeof(u16));
++	/*
++	 * 'src' points to the begin of a directory entry, and 'sz' gets its
++	 * 'name_size' member's value. name_size is actually the string
++	 * length - 1, so adding 2 compensates this difference and adds space
++	 * for the trailling null byte.
++	 */
++	*dest = malloc(sizeof(*tmp) + sz + 2);
++	if (!*dest)
++		return -ENOMEM;
++
++	memcpy(*dest, src, sizeof(*tmp) + sz + 1);
++	(*dest)->name[sz + 1] = '\0';
++
++	return 0;
++}
++
++static int sqfs_get_tokens_length(char **tokens, int count)
++{
++	int length = 0, i;
++
++	/*
++	 * 1 is added to the result of strlen to consider the slash separator
++	 * between the tokens.
++	 */
++	for (i = 0; i < count; i++)
++		length += strlen(tokens[i]) + 1;
++
++	return length;
++}
++
++/* Takes a token list and returns a single string with '/' as separator. */
++static char *sqfs_concat_tokens(char **token_list, int token_count)
++{
++	char *result;
++	int i, length = 0, offset = 0;
++
++	length = sqfs_get_tokens_length(token_list, token_count);
++
++	result = malloc(length + 1);
++	if (!result)
++		return NULL;
++
++	result[length] = '\0';
++
++	for (i = 0; i < token_count; i++) {
++		strcpy(result + offset, token_list[i]);
++		offset += strlen(token_list[i]);
++		result[offset++] = '/';
++	}
++
++	return result;
++}
++
++/*
++ * Differently from sqfs_concat_tokens, sqfs_join writes the result into a
++ * previously allocated string, and returns the number of bytes written.
++ */
++static int sqfs_join(char **strings, char *dest, int start, int end,
++		     char separator)
++{
++	int i, offset = 0;
++
++	for (i = start; i < end; i++) {
++		strcpy(dest + offset, strings[i]);
++		offset += strlen(strings[i]);
++		if (i < end - 1)
++			dest[offset++] = separator;
++	}
++
++	return offset;
++}
++
++/*
++ * Fills the given token list using its size (count) and a source string (str)
++ */
++static int sqfs_tokenize(char **tokens, int count, const char *str)
++{
++	int i, j, ret = 0;
++	char *aux, *strc;
++
++	strc = strdup(str);
++	if (!strc)
++		return -ENOMEM;
++
++	if (!strcmp(strc, "/")) {
++		tokens[0] = strdup(strc);
++		if (!tokens[0]) {
++			ret = -ENOMEM;
++			goto free_strc;
++		}
++	} else {
++		for (j = 0; j < count; j++) {
++			aux = strtok(!j ? strc : NULL, "/");
++			tokens[j] = strdup(aux);
++			if (!tokens[j]) {
++				for (i = 0; i < j; i++)
++					free(tokens[i]);
++				ret = -ENOMEM;
++				goto free_strc;
++			}
++		}
++	}
++
++free_strc:
++	free(strc);
++
++	return ret;
++}
++
++/*
++ * Remove last 'updir + 1' tokens from the base path tokens list. This leaves us
++ * with a token list containing only the tokens needed to form the resolved
++ * path, and returns the decremented size of the token list.
++ */
++static int sqfs_clean_base_path(char **base, int count, int updir)
++{
++	int i;
++
++	for (i = count - updir - 1; i < count; i++)
++		free(base[i]);
++
++	return count - updir - 1;
++}
++
++/*
++ * Given the base ("current dir.") path and the relative one, generate the
++ * absolute path.
++ */
++static char *sqfs_get_abs_path(const char *base, const char *rel)
++{
++	char **base_tokens, **rel_tokens, *resolved = NULL;
++	int ret, bc, rc, i, updir = 0, resolved_size = 0, offset = 0;
++
++	base_tokens = NULL;
++	rel_tokens = NULL;
++
++	/* Memory allocation for the token lists */
++	bc = sqfs_count_tokens(base);
++	rc = sqfs_count_tokens(rel);
++	if (bc < 1 || rc < 1)
++		return NULL;
++
++	base_tokens = calloc(bc, sizeof(char *));
++	if (!base_tokens)
++		return NULL;
++
++	rel_tokens = calloc(rc, sizeof(char *));
++	if (!rel_tokens)
++		goto out;
++
++	/* Fill token lists */
++	ret = sqfs_tokenize(base_tokens, bc, base);
++	if (ret)
++		goto out;
++
++	ret = sqfs_tokenize(rel_tokens, rc, rel);
++	if (ret)
++		goto out;
++
++	/* count '..' occurrences in target path */
++	for (i = 0; i < rc; i++) {
++		if (!strcmp(rel_tokens[i], ".."))
++			updir++;
++	}
++
++	/* Remove the last token and the '..' occurrences */
++	bc = sqfs_clean_base_path(base_tokens, bc, updir);
++	if (bc < 0)
++		goto out;
++
++	/* Calculate resolved path size */
++	if (!bc)
++		resolved_size++;
++
++	resolved_size += sqfs_get_tokens_length(base_tokens, bc) +
++		sqfs_get_tokens_length(rel_tokens, rc);
++
++	resolved = malloc(resolved_size + 1);
++	if (!resolved)
++		goto out;
++
++	/* Set resolved path */
++	memset(resolved, '\0', resolved_size + 1);
++	offset += sqfs_join(base_tokens, resolved + offset, 0, bc, '/');
++	resolved[offset++] = '/';
++	offset += sqfs_join(rel_tokens, resolved + offset, updir, rc, '/');
++
++out:
++	if (rel_tokens)
++		for (i = 0; i < rc; i++)
++			free(rel_tokens[i]);
++	if (base_tokens)
++		for (i = 0; i < bc; i++)
++			free(base_tokens[i]);
++
++	free(rel_tokens);
++	free(base_tokens);
++
++	return resolved;
++}
++
++static char *sqfs_resolve_symlink(struct squashfs_symlink_inode *sym,
++				  const char *base_path)
++{
++	char *resolved, *target;
++	u32 sz;
++
++	sz = get_unaligned_le32(&sym->symlink_size);
++	target = malloc(sz + 1);
++	if (!target)
++		return NULL;
++
++	/*
++	 * There is no trailling null byte in the symlink's target path, so a
++	 * copy is made and a '\0' is added at its end.
++	 */
++	target[sz] = '\0';
++	/* Get target name (relative path) */
++	strncpy(target, sym->symlink, sz);
++
++	/* Relative -> absolute path conversion */
++	resolved = sqfs_get_abs_path(base_path, target);
++
++	free(target);
++
++	return resolved;
++}
++
++/*
++ * m_list contains each metadata block's position, and m_count is the number of
++ * elements of m_list. Those metadata blocks come from the compressed directory
++ * table.
++ */
++static int sqfs_search_dir(struct squashfs_dir_stream *dirs, char **token_list,
++			   int token_count, u32 *m_list, int m_count)
++{
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	char *path, *target, **sym_tokens, *res, *rem;
++	int j, ret = 0, new_inode_number, offset;
++	struct squashfs_symlink_inode *sym;
++	struct squashfs_ldir_inode *ldir;
++	struct squashfs_dir_inode *dir;
++	struct fs_dir_stream *dirsp;
++	struct fs_dirent *dent;
++	unsigned char *table;
++
++	res = NULL;
++	rem = NULL;
++	path = NULL;
++	target = NULL;
++	sym_tokens = NULL;
++
++	dirsp = (struct fs_dir_stream *)dirs;
++
++	/* Start by root inode */
++	table = sqfs_find_inode(dirs->inode_table, le32_to_cpu(sblk->inodes),
++				sblk->inodes, sblk->block_size);
++
++	dir = (struct squashfs_dir_inode *)table;
++	ldir = (struct squashfs_ldir_inode *)table;
++
++	/* get directory offset in directory table */
++	offset = sqfs_dir_offset(table, m_list, m_count);
++	dirs->table = &dirs->dir_table[offset];
++
++	/* Setup directory header */
++	dirs->dir_header = malloc(SQFS_DIR_HEADER_SIZE);
++	if (!dirs->dir_header)
++		return -ENOMEM;
++
++	memcpy(dirs->dir_header, dirs->table, SQFS_DIR_HEADER_SIZE);
++
++	/* Initialize squashfs_dir_stream members */
++	dirs->table += SQFS_DIR_HEADER_SIZE;
++	dirs->size = get_unaligned_le16(&dir->file_size) - SQFS_DIR_HEADER_SIZE;
++	dirs->entry_count = dirs->dir_header->count + 1;
++
++	/* No path given -> root directory */
++	if (!strcmp(token_list[0], "/")) {
++		dirs->table = &dirs->dir_table[offset];
++		memcpy(&dirs->i_dir, dir, sizeof(*dir));
++		return 0;
++	}
++
++	for (j = 0; j < token_count; j++) {
++		if (!sqfs_is_dir(get_unaligned_le16(&dir->inode_type))) {
++			printf("** Cannot find directory. **\n");
++			ret = -EINVAL;
++			goto out;
++		}
++
++		while (!sqfs_readdir(dirsp, &dent)) {
++			ret = strcmp(dent->name, token_list[j]);
++			if (!ret)
++				break;
++			free(dirs->entry);
++			dirs->entry = NULL;
++		}
++
++		if (ret) {
++			printf("** Cannot find directory. **\n");
++			ret = -EINVAL;
++			goto out;
++		}
++
++		/* Redefine inode as the found token */
++		new_inode_number = dirs->entry->inode_offset +
++			dirs->dir_header->inode_number;
++
++		/* Get reference to inode in the inode table */
++		table = sqfs_find_inode(dirs->inode_table, new_inode_number,
++					sblk->inodes, sblk->block_size);
++		dir = (struct squashfs_dir_inode *)table;
++
++		/* Check for symbolic link and inode type sanity */
++		if (get_unaligned_le16(&dir->inode_type) == SQFS_SYMLINK_TYPE) {
++			sym = (struct squashfs_symlink_inode *)table;
++			/* Get first j + 1 tokens */
++			path = sqfs_concat_tokens(token_list, j + 1);
++			if (!path) {
++				ret = -ENOMEM;
++				goto out;
++			}
++			/* Resolve for these tokens */
++			target = sqfs_resolve_symlink(sym, path);
++			if (!target) {
++				ret = -ENOMEM;
++				goto out;
++			}
++			/* Join remaining tokens */
++			rem = sqfs_concat_tokens(token_list + j + 1, token_count -
++						 j - 1);
++			if (!rem) {
++				ret = -ENOMEM;
++				goto out;
++			}
++			/* Concatenate remaining tokens and symlink's target */
++			res = malloc(strlen(rem) + strlen(target) + 1);
++			if (!res) {
++				ret = -ENOMEM;
++				goto out;
++			}
++			strcpy(res, target);
++			res[strlen(target)] = '/';
++			strcpy(res + strlen(target) + 1, rem);
++			token_count = sqfs_count_tokens(res);
++
++			if (token_count < 0) {
++				ret = -EINVAL;
++				goto out;
++			}
++
++			sym_tokens = malloc(token_count * sizeof(char *));
++			if (!sym_tokens) {
++				ret = -EINVAL;
++				goto out;
++			}
++
++			/* Fill tokens list */
++			ret = sqfs_tokenize(sym_tokens, token_count, res);
++			if (ret) {
++				ret = -EINVAL;
++				goto out;
++			}
++			free(dirs->entry);
++			dirs->entry = NULL;
++
++			ret = sqfs_search_dir(dirs, sym_tokens, token_count,
++					      m_list, m_count);
++			goto out;
++		} else if (!sqfs_is_dir(get_unaligned_le16(&dir->inode_type))) {
++			printf("** Cannot find directory. **\n");
++			free(dirs->entry);
++			dirs->entry = NULL;
++			ret = -EINVAL;
++			goto out;
++		}
++
++		/* Check if it is an extended dir. */
++		if (get_unaligned_le16(&dir->inode_type) == SQFS_LDIR_TYPE)
++			ldir = (struct squashfs_ldir_inode *)table;
++
++		/* Get dir. offset into the directory table */
++		offset = sqfs_dir_offset(table, m_list, m_count);
++		dirs->table = &dirs->dir_table[offset];
++
++		/* Copy directory header */
++		memcpy(dirs->dir_header, &dirs->dir_table[offset],
++		       SQFS_DIR_HEADER_SIZE);
++
++		/* Check for empty directory */
++		if (sqfs_is_empty_dir(table)) {
++			printf("Empty directory.\n");
++			free(dirs->entry);
++			dirs->entry = NULL;
++			ret = SQFS_EMPTY_DIR;
++			goto out;
++		}
++
++		dirs->table += SQFS_DIR_HEADER_SIZE;
++		dirs->size = get_unaligned_le16(&dir->file_size);
++		dirs->entry_count = dirs->dir_header->count + 1;
++		dirs->size -= SQFS_DIR_HEADER_SIZE;
++		free(dirs->entry);
++		dirs->entry = NULL;
++	}
++
++	offset = sqfs_dir_offset(table, m_list, m_count);
++	dirs->table = &dirs->dir_table[offset];
++
++	if (get_unaligned_le16(&dir->inode_type) == SQFS_DIR_TYPE)
++		memcpy(&dirs->i_dir, dir, sizeof(*dir));
++	else
++		memcpy(&dirs->i_ldir, ldir, sizeof(*ldir));
++
++out:
++	free(res);
++	free(rem);
++	free(path);
++	free(target);
++	free(sym_tokens);
++	return ret;
++}
++
++/*
++ * Inode and directory tables are stored as a series of metadata blocks, and
++ * given the compressed size of this table, we can calculate how much metadata
++ * blocks are needed to store the result of the decompression, since a
++ * decompressed metadata block should have a size of 8KiB.
++ */
++static int sqfs_count_metablks(void *table, u32 offset, int table_size)
++{
++	int count = 0, cur_size = 0, ret;
++	u32 data_size;
++	bool comp;
++
++	do {
++		ret = sqfs_read_metablock(table, offset + cur_size, &comp,
++					  &data_size);
++		if (ret)
++			return -EINVAL;
++		cur_size += data_size + SQFS_HEADER_SIZE;
++		count++;
++	} while (cur_size < table_size);
++
++	return count;
++}
++
++/*
++ * Storing the metadata blocks header's positions will be useful while looking
++ * for an entry in the directory table, using the reference (index and offset)
++ * given by its inode.
++ */
++static int sqfs_get_metablk_pos(u32 *pos_list, void *table, u32 offset,
++				int metablks_count)
++{
++	u32 data_size, cur_size = 0;
++	int j, ret = 0;
++	bool comp;
++
++	if (!metablks_count)
++		return -EINVAL;
++
++	for (j = 0; j < metablks_count; j++) {
++		ret = sqfs_read_metablock(table, offset + cur_size, &comp,
++					  &data_size);
++		if (ret)
++			return -EINVAL;
++
++		cur_size += data_size + SQFS_HEADER_SIZE;
++		pos_list[j] = cur_size;
++	}
++
++	return ret;
++}
++
++static int sqfs_read_inode_table(unsigned char **inode_table)
++{
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	u64 start, n_blks, table_offset, table_size;
++	int j, ret = 0, metablks_count;
++	unsigned char *src_table, *itb;
++	u32 src_len, dest_offset = 0;
++	unsigned long dest_len = 0;
++	bool compressed;
++
++	table_size = get_unaligned_le64(&sblk->directory_table_start) -
++		get_unaligned_le64(&sblk->inode_table_start);
++	start = get_unaligned_le64(&sblk->inode_table_start) /
++		ctxt.cur_dev->blksz;
++	n_blks = sqfs_calc_n_blks(sblk->inode_table_start,
++				  sblk->directory_table_start, &table_offset);
++
++	/* Allocate a proper sized buffer (itb) to store the inode table */
++	itb = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++	if (!itb)
++		return -ENOMEM;
++
++	if (sqfs_disk_read(start, n_blks, itb) < 0) {
++		ret = -EINVAL;
++		goto free_itb;
++	}
++
++	/* Parse inode table (metadata block) header */
++	ret = sqfs_read_metablock(itb, table_offset, &compressed, &src_len);
++	if (ret) {
++		ret = -EINVAL;
++		goto free_itb;
++	}
++
++	/* Calculate size to store the whole decompressed table */
++	metablks_count = sqfs_count_metablks(itb, table_offset, table_size);
++	if (metablks_count < 1) {
++		ret = -EINVAL;
++		goto free_itb;
++	}
++
++	*inode_table = malloc(metablks_count * SQFS_METADATA_BLOCK_SIZE);
++	if (!*inode_table) {
++		ret = -ENOMEM;
++		goto free_itb;
++	}
++
++	src_table = itb + table_offset + SQFS_HEADER_SIZE;
++
++	/* Extract compressed Inode table */
++	for (j = 0; j < metablks_count; j++) {
++		sqfs_read_metablock(itb, table_offset, &compressed, &src_len);
++		if (compressed) {
++			dest_len = SQFS_METADATA_BLOCK_SIZE;
++			ret = sqfs_decompress(&ctxt, *inode_table +
++					      dest_offset, &dest_len,
++					      src_table, src_len);
++			if (ret) {
++				free(*inode_table);
++				*inode_table = NULL;
++				goto free_itb;
++			}
++
++			dest_offset += dest_len;
++		} else {
++			memcpy(*inode_table + (j * SQFS_METADATA_BLOCK_SIZE),
++			       src_table, src_len);
++		}
++
++		/*
++		 * Offsets to the decompression destination, to the metadata
++		 * buffer 'itb' and to the decompression source, respectively.
++		 */
++
++		table_offset += src_len + SQFS_HEADER_SIZE;
++		src_table += src_len + SQFS_HEADER_SIZE;
++	}
++
++free_itb:
++	free(itb);
++
++	return ret;
++}
++
++static int sqfs_read_directory_table(unsigned char **dir_table, u32 **pos_list)
++{
++	u64 start, n_blks, table_offset, table_size;
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	int j, ret = 0, metablks_count = -1;
++	unsigned char *src_table, *dtb;
++	u32 src_len, dest_offset = 0;
++	unsigned long dest_len = 0;
++	bool compressed;
++
++	*dir_table = NULL;
++	*pos_list = NULL;
++	/* DIRECTORY TABLE */
++	table_size = get_unaligned_le64(&sblk->fragment_table_start) -
++		get_unaligned_le64(&sblk->directory_table_start);
++	start = get_unaligned_le64(&sblk->directory_table_start) /
++		ctxt.cur_dev->blksz;
++	n_blks = sqfs_calc_n_blks(sblk->directory_table_start,
++				  sblk->fragment_table_start, &table_offset);
++
++	/* Allocate a proper sized buffer (dtb) to store the directory table */
++	dtb = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++	if (!dtb)
++		return -ENOMEM;
++
++	if (sqfs_disk_read(start, n_blks, dtb) < 0)
++		goto out;
++
++	/* Parse directory table (metadata block) header */
++	ret = sqfs_read_metablock(dtb, table_offset, &compressed, &src_len);
++	if (ret)
++		goto out;
++
++	/* Calculate total size to store the whole decompressed table */
++	metablks_count = sqfs_count_metablks(dtb, table_offset, table_size);
++	if (metablks_count < 1)
++		goto out;
++
++	*dir_table = malloc(metablks_count * SQFS_METADATA_BLOCK_SIZE);
++	if (!*dir_table)
++		goto out;
++
++	*pos_list = malloc(metablks_count * sizeof(u32));
++	if (!*pos_list)
++		goto out;
++
++	ret = sqfs_get_metablk_pos(*pos_list, dtb, table_offset,
++				   metablks_count);
++	if (ret) {
++		metablks_count = -1;
++		goto out;
++	}
++
++	src_table = dtb + table_offset + SQFS_HEADER_SIZE;
++
++	/* Extract compressed Directory table */
++	dest_offset = 0;
++	for (j = 0; j < metablks_count; j++) {
++		sqfs_read_metablock(dtb, table_offset, &compressed, &src_len);
++		if (compressed) {
++			dest_len = SQFS_METADATA_BLOCK_SIZE;
++			ret = sqfs_decompress(&ctxt, *dir_table +
++					      (j * SQFS_METADATA_BLOCK_SIZE),
++					      &dest_len, src_table, src_len);
++			if (ret) {
++				metablks_count = -1;
++				goto out;
++			}
++
++			if (dest_len < SQFS_METADATA_BLOCK_SIZE) {
++				dest_offset += dest_len;
++				break;
++			}
++
++			dest_offset += dest_len;
++		} else {
++			memcpy(*dir_table + (j * SQFS_METADATA_BLOCK_SIZE),
++			       src_table, src_len);
++		}
++
++		/*
++		 * Offsets to the decompression destination, to the metadata
++		 * buffer 'dtb' and to the decompression source, respectively.
++		 */
++		table_offset += src_len + SQFS_HEADER_SIZE;
++		src_table += src_len + SQFS_HEADER_SIZE;
++	}
++
++out:
++	if (metablks_count < 1) {
++		free(*dir_table);
++		free(*pos_list);
++		*dir_table = NULL;
++		*pos_list = NULL;
++	}
++	free(dtb);
++
++	return metablks_count;
++}
++
++int sqfs_opendir(const char *filename, struct fs_dir_stream **dirsp)
++{
++	unsigned char *inode_table = NULL, *dir_table = NULL;
++	int j, token_count = 0, ret = 0, metablks_count;
++	struct squashfs_dir_stream *dirs;
++	char **token_list = NULL, *path = NULL;
++	u32 *pos_list = NULL;
++
++	dirs = malloc(sizeof(*dirs));
++	if (!dirs)
++		return -EINVAL;
++
++	/* these should be set to NULL to prevent dangling pointers */
++	dirs->dir_header = NULL;
++	dirs->entry = NULL;
++	dirs->table = NULL;
++	dirs->inode_table = NULL;
++	dirs->dir_table = NULL;
++
++	ret = sqfs_read_inode_table(&inode_table);
++	if (ret) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	metablks_count = sqfs_read_directory_table(&dir_table, &pos_list);
++	if (metablks_count < 1) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	/* Tokenize filename */
++	token_count = sqfs_count_tokens(filename);
++	if (token_count < 0) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	path = strdup(filename);
++	if (!path) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	token_list = malloc(token_count * sizeof(char *));
++	if (!token_list) {
++		ret = -EINVAL;
++		goto out;
++	}
++
++	/* Fill tokens list */
++	ret = sqfs_tokenize(token_list, token_count, path);
++	if (ret)
++		goto out;
++	/*
++	 * ldir's (extended directory) size is greater than dir, so it works as
++	 * a general solution for the malloc size, since 'i' is a union.
++	 */
++	dirs->inode_table = inode_table;
++	dirs->dir_table = dir_table;
++	ret = sqfs_search_dir(dirs, token_list, token_count, pos_list,
++			      metablks_count);
++	if (ret)
++		goto out;
++
++	if (le16_to_cpu(dirs->i_dir.inode_type) == SQFS_DIR_TYPE)
++		dirs->size = le16_to_cpu(dirs->i_dir.file_size);
++	else
++		dirs->size = le32_to_cpu(dirs->i_ldir.file_size);
++
++	/* Setup directory header */
++	memcpy(dirs->dir_header, dirs->table, SQFS_DIR_HEADER_SIZE);
++	dirs->entry_count = dirs->dir_header->count + 1;
++	dirs->size -= SQFS_DIR_HEADER_SIZE;
++
++	/* Setup entry */
++	dirs->entry = NULL;
++	dirs->table += SQFS_DIR_HEADER_SIZE;
++
++	*dirsp = (struct fs_dir_stream *)dirs;
++
++out:
++	for (j = 0; j < token_count; j++)
++		free(token_list[j]);
++	free(token_list);
++	free(pos_list);
++	free(path);
++	if (ret) {
++		free(inode_table);
++		free(dirs);
++	}
++
++	return ret;
++}
++
++int sqfs_readdir(struct fs_dir_stream *fs_dirs, struct fs_dirent **dentp)
++{
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	struct squashfs_dir_stream *dirs;
++	struct squashfs_lreg_inode *lreg;
++	struct squashfs_base_inode *base;
++	struct squashfs_reg_inode *reg;
++	int i_number, offset = 0, ret;
++	struct fs_dirent *dent;
++	unsigned char *ipos;
++
++	dirs = (struct squashfs_dir_stream *)fs_dirs;
++	if (!dirs->size) {
++		*dentp = NULL;
++		return -SQFS_STOP_READDIR;
++	}
++
++	dent = &dirs->dentp;
++
++	if (!dirs->entry_count) {
++		if (dirs->size > SQFS_DIR_HEADER_SIZE) {
++			dirs->size -= SQFS_DIR_HEADER_SIZE;
++		} else {
++			*dentp = NULL;
++			dirs->size = 0;
++			return -SQFS_STOP_READDIR;
++		}
++
++		if (dirs->size > SQFS_EMPTY_FILE_SIZE) {
++			/* Read follow-up (emitted) dir. header */
++			memcpy(dirs->dir_header, dirs->table,
++			       SQFS_DIR_HEADER_SIZE);
++			dirs->entry_count = dirs->dir_header->count + 1;
++			ret = sqfs_read_entry(&dirs->entry, dirs->table +
++					      SQFS_DIR_HEADER_SIZE);
++			if (ret)
++				return -SQFS_STOP_READDIR;
++
++			dirs->table += SQFS_DIR_HEADER_SIZE;
++		}
++	} else {
++		ret = sqfs_read_entry(&dirs->entry, dirs->table);
++		if (ret)
++			return -SQFS_STOP_READDIR;
++	}
++
++	i_number = dirs->dir_header->inode_number + dirs->entry->inode_offset;
++	ipos = sqfs_find_inode(dirs->inode_table, i_number, sblk->inodes,
++			       sblk->block_size);
++
++	base = (struct squashfs_base_inode *)ipos;
++
++	/* Set entry type and size */
++	switch (dirs->entry->type) {
++	case SQFS_DIR_TYPE:
++	case SQFS_LDIR_TYPE:
++		dent->type = FS_DT_DIR;
++		break;
++	case SQFS_REG_TYPE:
++	case SQFS_LREG_TYPE:
++		/*
++		 * Entries do not differentiate extended from regular types, so
++		 * it needs to be verified manually.
++		 */
++		if (get_unaligned_le16(&base->inode_type) == SQFS_LREG_TYPE) {
++			lreg = (struct squashfs_lreg_inode *)ipos;
++			dent->size = get_unaligned_le64(&lreg->file_size);
++		} else {
++			reg = (struct squashfs_reg_inode *)ipos;
++			dent->size = get_unaligned_le32(&reg->file_size);
++		}
++
++		dent->type = FS_DT_REG;
++		break;
++	case SQFS_BLKDEV_TYPE:
++	case SQFS_CHRDEV_TYPE:
++	case SQFS_LBLKDEV_TYPE:
++	case SQFS_LCHRDEV_TYPE:
++	case SQFS_FIFO_TYPE:
++	case SQFS_SOCKET_TYPE:
++	case SQFS_LFIFO_TYPE:
++	case SQFS_LSOCKET_TYPE:
++		dent->type = SQFS_MISC_ENTRY_TYPE;
++		break;
++	case SQFS_SYMLINK_TYPE:
++	case SQFS_LSYMLINK_TYPE:
++		dent->type = FS_DT_LNK;
++		break;
++	default:
++		return -SQFS_STOP_READDIR;
++	}
++
++	/* Set entry name */
++	strncpy(dent->name, dirs->entry->name, dirs->entry->name_size + 1);
++	dent->name[dirs->entry->name_size + 1] = '\0';
++
++	offset = dirs->entry->name_size + 1 + SQFS_ENTRY_BASE_LENGTH;
++	dirs->entry_count--;
++
++	/* Decrement size to be read */
++	if (dirs->size > offset)
++		dirs->size -= offset;
++	else
++		dirs->size = 0;
++
++	/* Keep a reference to the current entry before incrementing it */
++	dirs->table += offset;
++
++	*dentp = dent;
++
++	return 0;
++}
++
++int sqfs_probe(struct blk_desc *fs_dev_desc, struct disk_partition *fs_partition)
++{
++	struct squashfs_super_block *sblk;
++	int ret;
++
++	ctxt.cur_dev = fs_dev_desc;
++	ctxt.cur_part_info = *fs_partition;
++
++	ret = sqfs_read_sblk(&sblk);
++	if (ret)
++		goto error;
++
++	/* Make sure it has a valid SquashFS magic number*/
++	if (get_unaligned_le32(&sblk->s_magic) != SQFS_MAGIC_NUMBER) {
++		printf("Bad magic number for SquashFS image.\n");
++		ret = -EINVAL;
++		goto error;
++	}
++
++	ctxt.sblk = sblk;
++
++	ret = sqfs_decompressor_init(&ctxt);
++	if (ret) {
++		goto error;
++	}
++
++	return 0;
++error:
++	ctxt.cur_dev = NULL;
++	free(ctxt.sblk);
++	ctxt.sblk = NULL;
++	return ret;
++}
++
++static char *sqfs_basename(char *path)
++{
++	char *fname;
++
++	fname = path + strlen(path) - 1;
++	while (fname >= path) {
++		if (*fname == '/') {
++			fname++;
++			break;
++		}
++
++		fname--;
++	}
++
++	return fname;
++}
++
++static char *sqfs_dirname(char *path)
++{
++	char *fname;
++
++	fname = sqfs_basename(path);
++	--fname;
++	*fname = '\0';
++
++	return path;
++}
++
++/*
++ * Takes a path to file and splits it in two parts: the filename itself and the
++ * directory's path, e.g.:
++ * path: /path/to/file.txt
++ * file: file.txt
++ * dir: /path/to
++ */
++static int sqfs_split_path(char **file, char **dir, const char *path)
++{
++	char *dirc, *basec, *bname, *dname, *tmp_path;
++	int ret = 0;
++
++	*file = NULL;
++	*dir = NULL;
++	dirc = NULL;
++	basec = NULL;
++	bname = NULL;
++	dname = NULL;
++	tmp_path = NULL;
++
++	/* check for first slash in path*/
++	if (path[0] == '/') {
++		tmp_path = strdup(path);
++		if (!tmp_path) {
++			ret = -ENOMEM;
++			goto out;
++		}
++	} else {
++		tmp_path = malloc(strlen(path) + 2);
++		if (!tmp_path) {
++			ret = -ENOMEM;
++			goto out;
++		}
++		tmp_path[0] = '/';
++		strcpy(tmp_path + 1, path);
++	}
++
++	/* String duplicates */
++	dirc = strdup(tmp_path);
++	if (!dirc) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	basec = strdup(tmp_path);
++	if (!basec) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	dname = sqfs_dirname(dirc);
++	bname = sqfs_basename(basec);
++
++	*file = strdup(bname);
++
++	if (!*file) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	if (*dname == '\0') {
++		*dir = malloc(2);
++		if (!*dir) {
++			ret = -ENOMEM;
++			goto out;
++		}
++
++		(*dir)[0] = '/';
++		(*dir)[1] = '\0';
++	} else {
++		*dir = strdup(dname);
++		if (!*dir) {
++			ret = -ENOMEM;
++			goto out;
++		}
++	}
++
++out:
++	if (ret) {
++		free(*file);
++		free(*dir);
++		*dir = NULL;
++		*file = NULL;
++	}
++	free(basec);
++	free(dirc);
++	free(tmp_path);
++
++	return ret;
++}
++
++static int sqfs_get_regfile_info(struct squashfs_reg_inode *reg,
++				 struct squashfs_file_info *finfo,
++				 struct squashfs_fragment_block_entry *fentry,
++				 __le32 blksz)
++{
++	int datablk_count = 0, ret;
++
++	finfo->size = get_unaligned_le32(&reg->file_size);
++	finfo->offset = get_unaligned_le32(&reg->offset);
++	finfo->start = get_unaligned_le32(&reg->start_block);
++	finfo->frag = SQFS_IS_FRAGMENTED(get_unaligned_le32(&reg->fragment));
++
++	if (finfo->frag && finfo->offset == 0xFFFFFFFF)
++		return -EINVAL;
++
++	if (finfo->size < 1 || finfo->start == 0xFFFFFFFF)
++		return -EINVAL;
++
++	if (finfo->frag) {
++		datablk_count = finfo->size / le32_to_cpu(blksz);
++		ret = sqfs_frag_lookup(get_unaligned_le32(&reg->fragment),
++				       fentry);
++		if (ret < 0)
++			return -EINVAL;
++		finfo->comp = true;
++		if (fentry->size < 1 || fentry->start == 0x7FFFFFFF)
++			return -EINVAL;
++	} else {
++		datablk_count = DIV_ROUND_UP(finfo->size, le32_to_cpu(blksz));
++	}
++
++	finfo->blk_sizes = malloc(datablk_count * sizeof(u32));
++	if (!finfo->blk_sizes)
++		return -ENOMEM;
++
++	return datablk_count;
++}
++
++static int sqfs_get_lregfile_info(struct squashfs_lreg_inode *lreg,
++				  struct squashfs_file_info *finfo,
++				  struct squashfs_fragment_block_entry *fentry,
++				 __le32 blksz)
++{
++	int datablk_count = 0, ret;
++
++	finfo->size = get_unaligned_le64(&lreg->file_size);
++	finfo->offset = get_unaligned_le32(&lreg->offset);
++	finfo->start = get_unaligned_le64(&lreg->start_block);
++	finfo->frag = SQFS_IS_FRAGMENTED(get_unaligned_le32(&lreg->fragment));
++
++	if (finfo->frag && finfo->offset == 0xFFFFFFFF)
++		return -EINVAL;
++
++	if (finfo->size < 1 || finfo->start == 0x7FFFFFFF)
++		return -EINVAL;
++
++	if (finfo->frag) {
++		datablk_count = finfo->size / le32_to_cpu(blksz);
++		ret = sqfs_frag_lookup(get_unaligned_le32(&lreg->fragment),
++				       fentry);
++		if (ret < 0)
++			return -EINVAL;
++		finfo->comp = true;
++		if (fentry->size < 1 || fentry->start == 0x7FFFFFFF)
++			return -EINVAL;
++	} else {
++		datablk_count = DIV_ROUND_UP(finfo->size, le32_to_cpu(blksz));
++	}
++
++	finfo->blk_sizes = malloc(datablk_count * sizeof(u32));
++	if (!finfo->blk_sizes)
++		return -ENOMEM;
++
++	return datablk_count;
++}
++
++int sqfs_read(const char *filename, void *buf, loff_t offset, loff_t len,
++	      loff_t *actread)
++{
++	char *dir = NULL, *fragment_block, *datablock = NULL, *data_buffer = NULL;
++	char *fragment = NULL, *file = NULL, *resolved, *data;
++	u64 start, n_blks, table_size, data_offset, table_offset;
++	int ret, j, i_number, datablk_count = 0;
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	struct squashfs_fragment_block_entry frag_entry;
++	struct squashfs_file_info finfo = {0};
++	struct squashfs_symlink_inode *symlink;
++	struct fs_dir_stream *dirsp = NULL;
++	struct squashfs_dir_stream *dirs;
++	struct squashfs_lreg_inode *lreg;
++	struct squashfs_base_inode *base;
++	struct squashfs_reg_inode *reg;
++	unsigned long dest_len;
++	struct fs_dirent *dent;
++	unsigned char *ipos;
++
++	*actread = 0;
++
++	if (offset) {
++		/*
++		 * TODO: implement reading at an offset in file
++		 */
++		printf("Error: reading at a specific offset in a squashfs file is not supported yet.\n");
++		return -EINVAL;
++	}
++
++	/*
++	 * sqfs_opendir will uncompress inode and directory tables, and will
++	 * return a pointer to the directory that contains the requested file.
++	 */
++	sqfs_split_path(&file, &dir, filename);
++	ret = sqfs_opendir(dir, &dirsp);
++	if (ret) {
++		goto out;
++	}
++
++	dirs = (struct squashfs_dir_stream *)dirsp;
++
++	/* For now, only regular files are able to be loaded */
++	while (!sqfs_readdir(dirsp, &dent)) {
++		ret = strcmp(dent->name, file);
++		if (!ret)
++			break;
++
++		free(dirs->entry);
++		dirs->entry = NULL;
++	}
++
++	if (ret) {
++		printf("File not found.\n");
++		*actread = 0;
++		ret = -ENOENT;
++		goto out;
++	}
++
++	i_number = dirs->dir_header->inode_number + dirs->entry->inode_offset;
++	ipos = sqfs_find_inode(dirs->inode_table, i_number, sblk->inodes,
++			       sblk->block_size);
++
++	base = (struct squashfs_base_inode *)ipos;
++	switch (get_unaligned_le16(&base->inode_type)) {
++	case SQFS_REG_TYPE:
++		reg = (struct squashfs_reg_inode *)ipos;
++		datablk_count = sqfs_get_regfile_info(reg, &finfo, &frag_entry,
++						      sblk->block_size);
++		if (datablk_count < 0) {
++			ret = -EINVAL;
++			goto out;
++		}
++
++		memcpy(finfo.blk_sizes, ipos + sizeof(*reg),
++		       datablk_count * sizeof(u32));
++		break;
++	case SQFS_LREG_TYPE:
++		lreg = (struct squashfs_lreg_inode *)ipos;
++		datablk_count = sqfs_get_lregfile_info(lreg, &finfo,
++						       &frag_entry,
++						       sblk->block_size);
++		if (datablk_count < 0) {
++			ret = -EINVAL;
++			goto out;
++		}
++
++		memcpy(finfo.blk_sizes, ipos + sizeof(*lreg),
++		       datablk_count * sizeof(u32));
++		break;
++	case SQFS_SYMLINK_TYPE:
++	case SQFS_LSYMLINK_TYPE:
++		symlink = (struct squashfs_symlink_inode *)ipos;
++		resolved = sqfs_resolve_symlink(symlink, filename);
++		ret = sqfs_read(resolved, buf, offset, len, actread);
++		free(resolved);
++		goto out;
++	case SQFS_BLKDEV_TYPE:
++	case SQFS_CHRDEV_TYPE:
++	case SQFS_LBLKDEV_TYPE:
++	case SQFS_LCHRDEV_TYPE:
++	case SQFS_FIFO_TYPE:
++	case SQFS_SOCKET_TYPE:
++	case SQFS_LFIFO_TYPE:
++	case SQFS_LSOCKET_TYPE:
++	default:
++		printf("Unsupported entry type\n");
++		ret = -EINVAL;
++		goto out;
++	}
++
++	/* If the user specifies a length, check its sanity */
++	if (len) {
++		if (len > finfo.size) {
++			ret = -EINVAL;
++			goto out;
++		}
++
++		finfo.size = len;
++	} else {
++		len = finfo.size;
++	}
++
++	if (datablk_count) {
++		data_offset = finfo.start;
++		datablock = malloc(get_unaligned_le32(&sblk->block_size));
++		if (!datablock) {
++			ret = -ENOMEM;
++			goto out;
++		}
++	}
++
++	for (j = 0; j < datablk_count; j++) {
++		start = data_offset / ctxt.cur_dev->blksz;
++		table_size = SQFS_BLOCK_SIZE(finfo.blk_sizes[j]);
++		table_offset = data_offset - (start * ctxt.cur_dev->blksz);
++		n_blks = DIV_ROUND_UP(table_size + table_offset,
++				      ctxt.cur_dev->blksz);
++
++		data_buffer = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++
++		if (!data_buffer) {
++			ret = -ENOMEM;
++			goto out;
++		}
++
++		ret = sqfs_disk_read(start, n_blks, data_buffer);
++		if (ret < 0) {
++			/*
++			 * Possible causes: too many data blocks or too large
++			 * SquashFS block size. Tip: re-compile the SquashFS
++			 * image with mksquashfs's -b <block_size> option.
++			 */
++			printf("Error: too many data blocks to be read.\n");
++			goto out;
++		}
++
++		data = data_buffer + table_offset;
++
++		/* Load the data */
++		if (SQFS_COMPRESSED_BLOCK(finfo.blk_sizes[j])) {
++			dest_len = get_unaligned_le32(&sblk->block_size);
++			ret = sqfs_decompress(&ctxt, datablock, &dest_len,
++					      data, table_size);
++			if (ret)
++				goto out;
++
++			if ((*actread + dest_len) > len)
++				dest_len = len - *actread;
++			memcpy(buf + *actread, datablock, dest_len);
++			*actread += dest_len;
++		} else {
++			if ((*actread + table_size) > len)
++				table_size = len - *actread;
++			memcpy(buf + *actread, data, table_size);
++			*actread += table_size;
++		}
++
++		data_offset += table_size;
++		free(data_buffer);
++		data_buffer = NULL;
++		if (*actread >= len)
++			break;
++	}
++
++	/*
++	 * There is no need to continue if the file is not fragmented.
++	 */
++	if (!finfo.frag) {
++		ret = 0;
++		goto out;
++	}
++
++	start = frag_entry.start / ctxt.cur_dev->blksz;
++	table_size = SQFS_BLOCK_SIZE(frag_entry.size);
++	table_offset = frag_entry.start - (start * ctxt.cur_dev->blksz);
++	n_blks = DIV_ROUND_UP(table_size + table_offset, ctxt.cur_dev->blksz);
++
++	fragment = malloc_cache_aligned(n_blks * ctxt.cur_dev->blksz);
++
++	if (!fragment) {
++		ret = -ENOMEM;
++		goto out;
++	}
++
++	ret = sqfs_disk_read(start, n_blks, fragment);
++	if (ret < 0)
++		goto out;
++
++	/* File compressed and fragmented */
++	if (finfo.frag && finfo.comp) {
++		dest_len = get_unaligned_le32(&sblk->block_size);
++		fragment_block = malloc(dest_len);
++		if (!fragment_block) {
++			ret = -ENOMEM;
++			goto out;
++		}
++
++		ret = sqfs_decompress(&ctxt, fragment_block, &dest_len,
++				      (void *)fragment  + table_offset,
++				      frag_entry.size);
++		if (ret) {
++			free(fragment_block);
++			goto out;
++		}
++
++		for (j = *actread; j < finfo.size; j++) {
++			memcpy(buf + j, &fragment_block[finfo.offset + j], 1);
++			(*actread)++;
++		}
++
++		free(fragment_block);
++
++	} else if (finfo.frag && !finfo.comp) {
++		fragment_block = (void *)fragment + table_offset;
++
++		for (j = *actread; j < finfo.size; j++) {
++			memcpy(buf + j, &fragment_block[finfo.offset + j], 1);
++			(*actread)++;
++		}
++	}
++
++out:
++	free(fragment);
++	if (datablk_count) {
++		free(data_buffer);
++		free(datablock);
++	}
++	free(file);
++	free(dir);
++	free(finfo.blk_sizes);
++	sqfs_closedir(dirsp);
++
++	return ret;
++}
++
++int sqfs_size(const char *filename, loff_t *size)
++{
++	struct squashfs_super_block *sblk = ctxt.sblk;
++	struct squashfs_symlink_inode *symlink;
++	struct fs_dir_stream *dirsp = NULL;
++	struct squashfs_base_inode *base;
++	struct squashfs_dir_stream *dirs;
++	struct squashfs_lreg_inode *lreg;
++	struct squashfs_reg_inode *reg;
++	char *dir, *file, *resolved;
++	struct fs_dirent *dent;
++	unsigned char *ipos;
++	int ret, i_number;
++
++	sqfs_split_path(&file, &dir, filename);
++	/*
++	 * sqfs_opendir will uncompress inode and directory tables, and will
++	 * return a pointer to the directory that contains the requested file.
++	 */
++	ret = sqfs_opendir(dir, &dirsp);
++	if (ret) {
++		ret = -EINVAL;
++		goto free_strings;
++	}
++
++	dirs = (struct squashfs_dir_stream *)dirsp;
++
++	while (!sqfs_readdir(dirsp, &dent)) {
++		ret = strcmp(dent->name, file);
++		if (!ret)
++			break;
++		free(dirs->entry);
++		dirs->entry = NULL;
++	}
++
++	if (ret) {
++		printf("File not found.\n");
++		*size = 0;
++		ret = -EINVAL;
++		goto free_strings;
++	}
++
++	i_number = dirs->dir_header->inode_number + dirs->entry->inode_offset;
++	ipos = sqfs_find_inode(dirs->inode_table, i_number, sblk->inodes,
++			       sblk->block_size);
++	free(dirs->entry);
++	dirs->entry = NULL;
++
++	base = (struct squashfs_base_inode *)ipos;
++	switch (get_unaligned_le16(&base->inode_type)) {
++	case SQFS_REG_TYPE:
++		reg = (struct squashfs_reg_inode *)ipos;
++		*size = get_unaligned_le32(&reg->file_size);
++		break;
++	case SQFS_LREG_TYPE:
++		lreg = (struct squashfs_lreg_inode *)ipos;
++		*size = get_unaligned_le64(&lreg->file_size);
++		break;
++	case SQFS_SYMLINK_TYPE:
++	case SQFS_LSYMLINK_TYPE:
++		symlink = (struct squashfs_symlink_inode *)ipos;
++		resolved = sqfs_resolve_symlink(symlink, filename);
++		ret = sqfs_size(resolved, size);
++		free(resolved);
++		break;
++	case SQFS_BLKDEV_TYPE:
++	case SQFS_CHRDEV_TYPE:
++	case SQFS_LBLKDEV_TYPE:
++	case SQFS_LCHRDEV_TYPE:
++	case SQFS_FIFO_TYPE:
++	case SQFS_SOCKET_TYPE:
++	case SQFS_LFIFO_TYPE:
++	case SQFS_LSOCKET_TYPE:
++	default:
++		printf("Unable to recover entry's size.\n");
++		*size = 0;
++		ret = -EINVAL;
++		break;
++	}
++
++free_strings:
++	free(dir);
++	free(file);
++
++	sqfs_closedir(dirsp);
++
++	return ret;
++}
++
++int sqfs_exists(const char *filename)
++{
++	struct fs_dir_stream *dirsp = NULL;
++	struct squashfs_dir_stream *dirs;
++	char *dir, *file;
++	struct fs_dirent *dent;
++	int ret;
++
++	sqfs_split_path(&file, &dir, filename);
++	/*
++	 * sqfs_opendir will uncompress inode and directory tables, and will
++	 * return a pointer to the directory that contains the requested file.
++	 */
++	ret = sqfs_opendir(dir, &dirsp);
++	if (ret) {
++		ret = -EINVAL;
++		goto free_strings;
++	}
++
++	dirs = (struct squashfs_dir_stream *)dirsp;
++
++	while (!sqfs_readdir(dirsp, &dent)) {
++		ret = strcmp(dent->name, file);
++		if (!ret)
++			break;
++		free(dirs->entry);
++		dirs->entry = NULL;
++	}
++
++	sqfs_closedir(dirsp);
++
++free_strings:
++	free(dir);
++	free(file);
++
++	return ret == 0;
++}
++
++void sqfs_close(void)
++{
++	sqfs_decompressor_cleanup(&ctxt);
++	free(ctxt.sblk);
++	ctxt.sblk = NULL;
++	ctxt.cur_dev = NULL;
++}
++
++void sqfs_closedir(struct fs_dir_stream *dirs)
++{
++	struct squashfs_dir_stream *sqfs_dirs;
++
++	sqfs_dirs = (struct squashfs_dir_stream *)dirs;
++	free(sqfs_dirs->inode_table);
++	free(sqfs_dirs->dir_table);
++	free(sqfs_dirs->dir_header);
++	free(sqfs_dirs);
++}
+diff --git a/fs/squashfs/sqfs_decompressor.c b/fs/squashfs/sqfs_decompressor.c
+new file mode 100644
+index 00000000..d69ddb24
+--- /dev/null
++++ b/fs/squashfs/sqfs_decompressor.c
+@@ -0,0 +1,155 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ */
++
++#include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++#if IS_ENABLED(CONFIG_LZO)
++#include <linux/lzo.h>
++#endif
++
++#if IS_ENABLED(CONFIG_ZLIB)
++#include <u-boot/zlib.h>
++#endif
++
++#if IS_ENABLED(CONFIG_ZSTD)
++#include <linux/zstd.h>
++#endif
++
++#include "sqfs_decompressor.h"
++#include "sqfs_utils.h"
++
++int sqfs_decompressor_init(struct squashfs_ctxt *ctxt)
++{
++	u16 comp_type = get_unaligned_le16(&ctxt->sblk->compression);
++
++	switch (comp_type) {
++#if IS_ENABLED(CONFIG_LZO)
++	case SQFS_COMP_LZO:
++		break;
++#endif
++#if IS_ENABLED(CONFIG_ZLIB)
++	case SQFS_COMP_ZLIB:
++		break;
++#endif
++#if IS_ENABLED(CONFIG_ZSTD)
++	case SQFS_COMP_ZSTD:
++		ctxt->zstd_workspace = malloc(ZSTD_DCtxWorkspaceBound());
++		if (!ctxt->zstd_workspace)
++			return -ENOMEM;
++		break;
++#endif
++	default:
++		printf("Error: unknown compression type.\n");
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++void sqfs_decompressor_cleanup(struct squashfs_ctxt *ctxt)
++{
++	u16 comp_type = get_unaligned_le16(&ctxt->sblk->compression);
++
++	switch (comp_type) {
++#if IS_ENABLED(CONFIG_LZO)
++	case SQFS_COMP_LZO:
++		break;
++#endif
++#if IS_ENABLED(CONFIG_ZLIB)
++	case SQFS_COMP_ZLIB:
++		break;
++#endif
++#if IS_ENABLED(CONFIG_ZSTD)
++	case SQFS_COMP_ZSTD:
++		free(ctxt->zstd_workspace);
++		break;
++#endif
++	}
++}
++
++#if IS_ENABLED(CONFIG_ZLIB)
++static void zlib_decompression_status(int ret)
++{
++	switch (ret) {
++	case Z_BUF_ERROR:
++		printf("Error: 'dest' buffer is not large enough.\n");
++		break;
++	case Z_DATA_ERROR:
++		printf("Error: corrupted compressed data.\n");
++		break;
++	case Z_MEM_ERROR:
++		printf("Error: insufficient memory.\n");
++		break;
++	}
++}
++#endif
++
++#if IS_ENABLED(CONFIG_ZSTD)
++static int sqfs_zstd_decompress(struct squashfs_ctxt *ctxt, void *dest,
++				unsigned long dest_len, void *source, u32 src_len)
++{
++	ZSTD_DCtx *ctx;
++	size_t wsize;
++	int ret;
++
++	wsize = ZSTD_DCtxWorkspaceBound();
++	ctx = ZSTD_initDCtx(ctxt->zstd_workspace, wsize);
++	ret = ZSTD_decompressDCtx(ctx, dest, dest_len, source, src_len);
++
++	return ZSTD_isError(ret);
++}
++#endif /* CONFIG_ZSTD */
++
++int sqfs_decompress(struct squashfs_ctxt *ctxt, void *dest,
++		    unsigned long *dest_len, void *source, u32 src_len)
++{
++	u16 comp_type = get_unaligned_le16(&ctxt->sblk->compression);
++	int ret = 0;
++
++	switch (comp_type) {
++#if IS_ENABLED(CONFIG_LZO)
++	case SQFS_COMP_LZO: {
++		size_t lzo_dest_len = *dest_len;
++		ret = lzo1x_decompress_safe(source, src_len, dest, &lzo_dest_len);
++		if (ret) {
++			printf("LZO decompression failed. Error code: %d\n", ret);
++			return -EINVAL;
++		}
++
++		break;
++	}
++#endif
++#if IS_ENABLED(CONFIG_ZLIB)
++	case SQFS_COMP_ZLIB:
++		ret = uncompress(dest, dest_len, source, src_len);
++		if (ret) {
++			zlib_decompression_status(ret);
++			return -EINVAL;
++		}
++
++		break;
++#endif
++#if IS_ENABLED(CONFIG_ZSTD)
++	case SQFS_COMP_ZSTD:
++		ret = sqfs_zstd_decompress(ctxt, dest, *dest_len, source, src_len);
++		if (ret) {
++			printf("ZSTD Error code: %d\n", ZSTD_getErrorCode(ret));
++			return -EINVAL;
++		}
++
++		break;
++#endif
++	default:
++		printf("Error: unknown compression type.\n");
++		return -EINVAL;
++	}
++
++	return ret;
++}
+diff --git a/fs/squashfs/sqfs_decompressor.h b/fs/squashfs/sqfs_decompressor.h
+new file mode 100644
+index 00000000..892cfb69
+--- /dev/null
++++ b/fs/squashfs/sqfs_decompressor.h
+@@ -0,0 +1,61 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ */
++
++#ifndef SQFS_DECOMPRESSOR_H
++#define SQFS_DECOMPRESSOR_H
++
++#include <stdint.h>
++#include "sqfs_filesystem.h"
++
++#define SQFS_COMP_ZLIB 1
++#define SQFS_COMP_LZMA 2
++#define SQFS_COMP_LZO 3
++#define SQFS_COMP_XZ 4
++#define SQFS_COMP_LZ4 5
++#define SQFS_COMP_ZSTD 6
++
++/* LZMA does not support any compression options */
++
++struct squashfs_gzip_opts {
++	u32 compression_level;
++	u16 window_size;
++	u16 strategies;
++};
++
++struct squashfs_xz_opts {
++	u32 dictionary_size;
++	u32 executable_filters;
++};
++
++struct squashfs_lz4_opts {
++	u32 version;
++	u32 flags;
++};
++
++struct squashfs_zstd_opts {
++	u32 compression_level;
++};
++
++struct squashfs_lzo_opts {
++	u32 algorithm;
++	u32 level;
++};
++
++union squashfs_compression_opts {
++	struct squashfs_gzip_opts *gzip;
++	struct squashfs_xz_opts *xz;
++	struct squashfs_lz4_opts *lz4;
++	struct squashfs_zstd_opts *zstd;
++	struct squashfs_lzo_opts *lzo;
++};
++
++int sqfs_decompress(struct squashfs_ctxt *ctxt, void *dest,
++		    unsigned long *dest_len, void *source, u32 src_len);
++int sqfs_decompressor_init(struct squashfs_ctxt *ctxt);
++void sqfs_decompressor_cleanup(struct squashfs_ctxt *ctxt);
++
++#endif /* SQFS_DECOMPRESSOR_H */
+diff --git a/fs/squashfs/sqfs_dir.c b/fs/squashfs/sqfs_dir.c
+new file mode 100644
+index 00000000..a265b98f
+--- /dev/null
++++ b/fs/squashfs/sqfs_dir.c
+@@ -0,0 +1,93 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ */
++
++#include <errno.h>
++#include <linux/types.h>
++#include <linux/byteorder/little_endian.h>
++#include <linux/byteorder/generic.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++#include "sqfs_filesystem.h"
++#include "sqfs_utils.h"
++
++bool sqfs_is_dir(u16 type)
++{
++	return type == SQFS_DIR_TYPE || type == SQFS_LDIR_TYPE;
++}
++
++/*
++ * Receives a pointer (void *) to a position in the inode table containing the
++ * directory's inode. Returns directory inode offset into the directory table.
++ * m_list contains each metadata block's position, and m_count is the number of
++ * elements of m_list. Those metadata blocks come from the compressed directory
++ * table.
++ */
++int sqfs_dir_offset(void *dir_i, u32 *m_list, int m_count)
++{
++	struct squashfs_base_inode *base = dir_i;
++	struct squashfs_ldir_inode *ldir;
++	struct squashfs_dir_inode *dir;
++	u32 start_block;
++	int j, offset;
++
++	switch (get_unaligned_le16(&base->inode_type)) {
++	case SQFS_DIR_TYPE:
++		dir = (struct squashfs_dir_inode *)base;
++		start_block = get_unaligned_le32(&dir->start_block);
++		offset = get_unaligned_le16(&dir->offset);
++		break;
++	case SQFS_LDIR_TYPE:
++		ldir = (struct squashfs_ldir_inode *)base;
++		start_block = get_unaligned_le32(&ldir->start_block);
++		offset = get_unaligned_le16(&ldir->offset);
++		break;
++	default:
++		printf("Error: this is not a directory.\n");
++		return -EINVAL;
++	}
++
++	if (offset < 0)
++		return -EINVAL;
++
++	for (j = 0; j < m_count; j++) {
++		if (m_list[j] == start_block)
++			return (++j * SQFS_METADATA_BLOCK_SIZE) + offset;
++	}
++
++	if (start_block == 0)
++		return offset;
++
++	printf("Error: invalid inode reference to directory table.\n");
++
++	return -EINVAL;
++}
++
++bool sqfs_is_empty_dir(void *dir_i)
++{
++	struct squashfs_base_inode *base = dir_i;
++	struct squashfs_ldir_inode *ldir;
++	struct squashfs_dir_inode *dir;
++	u32 file_size;
++
++	switch (get_unaligned_le16(&base->inode_type)) {
++	case SQFS_DIR_TYPE:
++		dir = (struct squashfs_dir_inode *)base;
++		file_size = get_unaligned_le16(&dir->file_size);
++		break;
++	case SQFS_LDIR_TYPE:
++		ldir = (struct squashfs_ldir_inode *)base;
++		file_size = get_unaligned_le16(&ldir->file_size);
++		break;
++	default:
++		printf("Error: this is not a directory.\n");
++		return false;
++	}
++
++	return file_size == SQFS_EMPTY_FILE_SIZE;
++}
+diff --git a/fs/squashfs/sqfs_filesystem.h b/fs/squashfs/sqfs_filesystem.h
+new file mode 100644
+index 00000000..856cd15e
+--- /dev/null
++++ b/fs/squashfs/sqfs_filesystem.h
+@@ -0,0 +1,310 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ */
++
++#ifndef SQFS_FILESYSTEM_H
++#define SQFS_FILESYSTEM_H
++
++#include <asm/unaligned.h>
++#include <fs.h>
++#include <part.h>
++#include <stdint.h>
++
++#define SQFS_UNCOMPRESSED_DATA 0x0002
++#define SQFS_MAGIC_NUMBER 0x73717368
++/* The three first members of squashfs_dir_index make a total of 12 bytes */
++#define SQFS_DIR_INDEX_BASE_LENGTH 12
++/* size of metadata (inode and directory) blocks */
++#define SQFS_METADATA_BLOCK_SIZE 8192
++/* Max. number of fragment entries in a metadata block is 512 */
++#define SQFS_MAX_ENTRIES 512
++/* Metadata blocks start by a 2-byte length header */
++#define SQFS_HEADER_SIZE 2
++#define SQFS_LREG_INODE_MIN_SIZE 56
++#define SQFS_DIR_HEADER_SIZE 12
++#define SQFS_MISC_ENTRY_TYPE -1
++#define SQFS_EMPTY_FILE_SIZE 3
++#define SQFS_STOP_READDIR 1
++#define SQFS_EMPTY_DIR -1
++/*
++ * A directory entry object has a fixed length of 8 bytes, corresponding to its
++ * first four members, plus the size of the entry name, which is equal to
++ * 'entry_name' + 1 bytes.
++ */
++#define SQFS_ENTRY_BASE_LENGTH 8
++/* Inode types */
++#define SQFS_DIR_TYPE 1
++#define SQFS_REG_TYPE 2
++#define SQFS_SYMLINK_TYPE 3
++#define SQFS_BLKDEV_TYPE 4
++#define SQFS_CHRDEV_TYPE 5
++#define SQFS_FIFO_TYPE 6
++#define SQFS_SOCKET_TYPE 7
++#define SQFS_LDIR_TYPE 8
++#define SQFS_LREG_TYPE 9
++#define SQFS_LSYMLINK_TYPE 10
++#define SQFS_LBLKDEV_TYPE 11
++#define SQFS_LCHRDEV_TYPE 12
++#define SQFS_LFIFO_TYPE 13
++#define SQFS_LSOCKET_TYPE 14
++
++struct squashfs_super_block {
++	__le32 s_magic;
++	__le32 inodes;
++	__le32 mkfs_time;
++	__le32 block_size;
++	__le32 fragments;
++	__le16 compression;
++	__le16 block_log;
++	__le16 flags;
++	__le16 no_ids;
++	__le16 s_major;
++	__le16 s_minor;
++	__le64 root_inode;
++	__le64 bytes_used;
++	__le64 id_table_start;
++	__le64 xattr_id_table_start;
++	__le64 inode_table_start;
++	__le64 directory_table_start;
++	__le64 fragment_table_start;
++	__le64 export_table_start;
++};
++
++struct squashfs_ctxt {
++	struct disk_partition cur_part_info;
++	struct blk_desc *cur_dev;
++	struct squashfs_super_block *sblk;
++#if IS_ENABLED(CONFIG_ZSTD)
++	void *zstd_workspace;
++#endif
++};
++
++struct squashfs_directory_index {
++	u32 index;
++	u32 start;
++	u32 size;
++	char name[0];
++};
++
++struct squashfs_base_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++};
++
++struct squashfs_ipc_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 nlink;
++};
++
++struct squashfs_lipc_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 nlink;
++	__le32 xattr;
++};
++
++struct squashfs_dev_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 nlink;
++	__le32 rdev;
++};
++
++struct squashfs_ldev_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 nlink;
++	__le32 rdev;
++	__le32 xattr;
++};
++
++struct squashfs_symlink_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 nlink;
++	__le32 symlink_size;
++	char symlink[0];
++};
++
++struct squashfs_reg_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 start_block;
++	__le32 fragment;
++	__le32 offset;
++	__le32 file_size;
++	__le32 block_list[0];
++};
++
++struct squashfs_lreg_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le64 start_block;
++	__le64 file_size;
++	__le64 sparse;
++	__le32 nlink;
++	__le32 fragment;
++	__le32 offset;
++	__le32 xattr;
++	__le32 block_list[0];
++};
++
++struct squashfs_dir_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 start_block;
++	__le32 nlink;
++	__le16 file_size;
++	__le16 offset;
++	__le32 parent_inode;
++};
++
++struct squashfs_ldir_inode {
++	__le16 inode_type;
++	__le16 mode;
++	__le16 uid;
++	__le16 guid;
++	__le32 mtime;
++	__le32 inode_number;
++	__le32 nlink;
++	__le32 file_size;
++	__le32 start_block;
++	__le32 parent_inode;
++	__le16 i_count;
++	__le16 offset;
++	__le32 xattr;
++	struct squashfs_directory_index index[0];
++};
++
++union squashfs_inode {
++	struct squashfs_base_inode *base;
++	struct squashfs_dev_inode *dev;
++	struct squashfs_ldev_inode *ldev;
++	struct squashfs_symlink_inode *symlink;
++	struct squashfs_reg_inode *reg;
++	struct squashfs_lreg_inode *lreg;
++	struct squashfs_dir_inode *dir;
++	struct squashfs_ldir_inode *ldir;
++	struct squashfs_ipc_inode *ipc;
++	struct squashfs_lipc_inode *lipc;
++};
++
++struct squashfs_directory_entry {
++	u16 offset;
++	u16 inode_offset;
++	u16 type;
++	u16 name_size;
++	char name[0];
++};
++
++struct squashfs_directory_header {
++	u32 count;
++	u32 start;
++	u32 inode_number;
++};
++
++struct squashfs_fragment_block_entry {
++	u64 start;
++	u32 size;
++	u32 _unused;
++};
++
++struct squashfs_dir_stream {
++	struct fs_dir_stream fs_dirs;
++	struct fs_dirent dentp;
++	/*
++	 * 'size' is the uncompressed size of the entire listing, including
++	 * headers. 'entry_count' is the number of entries following a
++	 * specific header. Both variables are decremented in sqfs_readdir() so
++	 * the function knows when the end of the directory is reached.
++	 */
++	size_t size;
++	int entry_count;
++	/* SquashFS structures */
++	struct squashfs_directory_header *dir_header;
++	struct squashfs_directory_entry *entry;
++	/*
++	 * 'table' points to a position into the directory table. Both 'table'
++	 * and 'inode' are defined for the first time in sqfs_opendir().
++	 * 'table's value changes in sqfs_readdir().
++	 */
++	unsigned char *table;
++	union squashfs_inode i;
++	struct squashfs_dir_inode i_dir;
++	struct squashfs_ldir_inode i_ldir;
++	/*
++	 * References to the tables' beginnings. They are assigned in
++	 * sqfs_opendir() and freed in sqfs_closedir().
++	 */
++	unsigned char *inode_table;
++	unsigned char *dir_table;
++};
++
++struct squashfs_file_info {
++	/* File size in bytes (uncompressed) */
++	size_t size;
++	/* Reference to list of data blocks's sizes */
++	u32 *blk_sizes;
++	/* Offset into the fragment block */
++	u32 offset;
++	/* Offset in which the data blocks begin */
++	u64 start;
++	/* Is file fragmented? */
++	bool frag;
++	/* Compressed fragment */
++	bool comp;
++};
++
++void *sqfs_find_inode(void *inode_table, int inode_number, __le32 inode_count,
++		      __le32 block_size);
++
++int sqfs_dir_offset(void *dir_i, u32 *m_list, int m_count);
++
++int sqfs_read_metablock(unsigned char *file_mapping, int offset,
++			bool *compressed, u32 *data_size);
++
++bool sqfs_is_empty_dir(void *dir_i);
++
++bool sqfs_is_dir(u16 type);
++
++#endif /* SQFS_FILESYSTEM_H */
+diff --git a/fs/squashfs/sqfs_inode.c b/fs/squashfs/sqfs_inode.c
+new file mode 100644
+index 00000000..e76ec7cb
+--- /dev/null
++++ b/fs/squashfs/sqfs_inode.c
+@@ -0,0 +1,161 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ */
++
++#include <asm/unaligned.h>
++#include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++
++#include "sqfs_decompressor.h"
++#include "sqfs_filesystem.h"
++#include "sqfs_utils.h"
++
++int sqfs_inode_size(struct squashfs_base_inode *inode, u32 blk_size)
++{
++	switch (get_unaligned_le16(&inode->inode_type)) {
++	case SQFS_DIR_TYPE:
++		return sizeof(struct squashfs_dir_inode);
++
++	case SQFS_REG_TYPE: {
++		struct squashfs_reg_inode *reg =
++			(struct squashfs_reg_inode *)inode;
++		u32 fragment = get_unaligned_le32(&reg->fragment);
++		u32 file_size = get_unaligned_le32(&reg->file_size);
++		unsigned int blk_list_size;
++
++		if (SQFS_IS_FRAGMENTED(fragment))
++			blk_list_size = file_size / blk_size;
++		else
++			blk_list_size = DIV_ROUND_UP(file_size, blk_size);
++
++		return sizeof(*reg) + blk_list_size * sizeof(u32);
++	}
++
++	case SQFS_LDIR_TYPE: {
++		struct squashfs_ldir_inode *ldir =
++			(struct squashfs_ldir_inode *)inode;
++		u16 i_count = get_unaligned_le16(&ldir->i_count);
++		unsigned int index_list_size = 0, l = 0;
++		struct squashfs_directory_index *di;
++		u32 sz;
++
++		if (i_count == 0)
++			return sizeof(*ldir);
++
++		di = ldir->index;
++		while (l < i_count) {
++			sz = get_unaligned_le32(&di->size) + 1;
++			index_list_size += sz;
++			di = (void *)di + sizeof(*di) + sz;
++			l++;
++		}
++
++		return sizeof(*ldir) + index_list_size +
++			i_count * SQFS_DIR_INDEX_BASE_LENGTH;
++	}
++
++	case SQFS_LREG_TYPE: {
++		struct squashfs_lreg_inode *lreg =
++			(struct squashfs_lreg_inode *)inode;
++		u32 fragment = get_unaligned_le32(&lreg->fragment);
++		u64 file_size = get_unaligned_le64(&lreg->file_size);
++		unsigned int blk_list_size;
++
++		if (fragment == 0xFFFFFFFF)
++			blk_list_size = DIV_ROUND_UP(file_size, blk_size);
++		else
++			blk_list_size = file_size / blk_size;
++
++		return sizeof(*lreg) + blk_list_size * sizeof(u32);
++	}
++
++	case SQFS_SYMLINK_TYPE:
++	case SQFS_LSYMLINK_TYPE: {
++		struct squashfs_symlink_inode *symlink =
++			(struct squashfs_symlink_inode *)inode;
++
++		return sizeof(*symlink) +
++			get_unaligned_le32(&symlink->symlink_size);
++	}
++
++	case SQFS_BLKDEV_TYPE:
++	case SQFS_CHRDEV_TYPE:
++		return sizeof(struct squashfs_dev_inode);
++	case SQFS_LBLKDEV_TYPE:
++	case SQFS_LCHRDEV_TYPE:
++		return sizeof(struct squashfs_ldev_inode);
++	case SQFS_FIFO_TYPE:
++	case SQFS_SOCKET_TYPE:
++		return sizeof(struct squashfs_ipc_inode);
++	case SQFS_LFIFO_TYPE:
++	case SQFS_LSOCKET_TYPE:
++		return sizeof(struct squashfs_lipc_inode);
++	default:
++		printf("Error while searching inode: unknown type.\n");
++		return -EINVAL;
++	}
++}
++
++/*
++ * Given the uncompressed inode table, the inode to be found and the number of
++ * inodes in the table, return inode position in case of success.
++ */
++void *sqfs_find_inode(void *inode_table, int inode_number, __le32 inode_count,
++		      __le32 block_size)
++{
++	struct squashfs_base_inode *base;
++	unsigned int offset = 0, k;
++	int sz;
++
++	if (!inode_table) {
++		printf("%s: Invalid pointer to inode table.\n", __func__);
++		return NULL;
++	}
++
++	for (k = 0; k < le32_to_cpu(inode_count); k++) {
++		base = inode_table + offset;
++		if (get_unaligned_le32(&base->inode_number) == inode_number)
++			return inode_table + offset;
++
++		sz = sqfs_inode_size(base, le32_to_cpu(block_size));
++		if (sz < 0)
++			return NULL;
++
++		offset += sz;
++	}
++
++	printf("Inode not found.\n");
++
++	return NULL;
++}
++
++int sqfs_read_metablock(unsigned char *file_mapping, int offset,
++			bool *compressed, u32 *data_size)
++{
++	const unsigned char *data;
++	u16 header;
++
++	if (!file_mapping)
++		return -EFAULT;
++	data = file_mapping + offset;
++
++	header = get_unaligned((u16 *)data);
++	if (!header)
++		return -EINVAL;
++
++	*compressed = SQFS_COMPRESSED_METADATA(header);
++	*data_size = SQFS_METADATA_SIZE(header);
++
++	if (*data_size > SQFS_METADATA_BLOCK_SIZE) {
++		printf("Invalid metatada block size: %d bytes.\n", *data_size);
++		return -EINVAL;
++	}
++
++	return 0;
++}
+diff --git a/fs/squashfs/sqfs_utils.h b/fs/squashfs/sqfs_utils.h
+new file mode 100644
+index 00000000..1260abe2
+--- /dev/null
++++ b/fs/squashfs/sqfs_utils.h
+@@ -0,0 +1,49 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ */
++
++#ifndef SQFS_UTILS_H
++#define SQFS_UTILS_H
++
++#include <linux/bitops.h>
++#include <linux/kernel.h>
++#include <stdbool.h>
++
++#define SQFS_FRAGMENT_INDEX_OFFSET(A) ((A) % SQFS_MAX_ENTRIES)
++#define SQFS_FRAGMENT_INDEX(A) ((A) / SQFS_MAX_ENTRIES)
++#define SQFS_BLOCK_SIZE(A) ((A) & GENMASK(23, 0))
++#define SQFS_CHECK_FLAG(flag, bit) (((flag) >> (bit)) & 1)
++/* Useful for both fragment and data blocks */
++#define SQFS_COMPRESSED_BLOCK(A) (!((A) & BIT(24)))
++/* SQFS_COMPRESSED_DATA strictly used with super block's 'flags' member */
++#define SQFS_COMPRESSED_DATA(A) (!((A) & 0x0002))
++#define SQFS_IS_FRAGMENTED(A) ((A) != 0xFFFFFFFF)
++/*
++ * These two macros work as getters for a metada block header, retrieving the
++ * data size and if it is compressed/uncompressed
++ */
++#define SQFS_COMPRESSED_METADATA(A) (!((A) & BIT(15)))
++#define SQFS_METADATA_SIZE(A) ((A) & GENMASK(14, 0))
++
++struct squashfs_super_block_flags {
++	/* check: unused
++	 * uncompressed_ids: not supported
++	 */
++	bool uncompressed_inodes;
++	bool uncompressed_data;
++	bool check;
++	bool uncompressed_frags;
++	bool no_frags;
++	bool always_frags;
++	bool duplicates;
++	bool exportable;
++	bool uncompressed_xattrs;
++	bool no_xattrs;
++	bool compressor_options;
++	bool uncompressed_ids;
++};
++
++#endif /* SQFS_UTILS_H  */
+diff --git a/include/fs.h b/include/fs.h
+index 742a535b..d3d81f9f 100644
+--- a/include/fs.h
++++ b/include/fs.h
+@@ -13,6 +13,7 @@
+ #define FS_TYPE_SANDBOX	3
+ #define FS_TYPE_UBIFS	4
+ #define FS_TYPE_BTRFS	5
++#define FS_TYPE_SQUASHFS 6
+ 
+ /*
+  * Tell the fs layer which block device an partition to use for future
+diff --git a/include/hang.h b/include/hang.h
+new file mode 100644
+index 00000000..27cda493
+--- /dev/null
++++ b/include/hang.h
+@@ -0,0 +1,22 @@
++/* SPDX-License-Identifier: GPL-2.0+ */
++/*
++ * (C) Copyright 2000-2009
++ * Wolfgang Denk, DENX Software Engineering, wd@denx.de.
++ */
++
++#ifndef __HANG_H
++#define __HANG_H
++
++#ifndef __ASSEMBLY__
++/**
++ * hang() - Print a message and stop execution
++ *
++ * This shows a 'hang' message where possible and then goes into an infinite
++ * loop. This is called by panic() if CONFIG_PANIC_HANG is enabled.
++ *
++ * This function does not return.
++ */
++void hang(void) __attribute__ ((noreturn));
++#endif
++
++#endif
+diff --git a/include/squashfs.h b/include/squashfs.h
+new file mode 100644
+index 00000000..7489eefa
+--- /dev/null
++++ b/include/squashfs.h
+@@ -0,0 +1,26 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Copyright (C) 2020 Bootlin
++ *
++ * Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++ *
++ * squashfs.h: SquashFS filesystem implementation.
++ */
++
++#ifndef _SQFS_H_
++#define _SQFS_H_
++
++struct disk_partition;
++
++int sqfs_opendir(const char *filename, struct fs_dir_stream **dirsp);
++int sqfs_readdir(struct fs_dir_stream *dirs, struct fs_dirent **dentp);
++int sqfs_probe(struct blk_desc *fs_dev_desc,
++	       struct disk_partition *fs_partition);
++int sqfs_read(const char *filename, void *buf, loff_t offset,
++	      loff_t len, loff_t *actread);
++int sqfs_size(const char *filename, loff_t *size);
++int sqfs_exists(const char *filename);
++void sqfs_close(void);
++void sqfs_closedir(struct fs_dir_stream *dirs);
++
++#endif /* SQFS_H  */
+diff --git a/include/u-boot/zlib.h b/include/u-boot/zlib.h
+index e23ceb50..a33cc878 100644
+--- a/include/u-boot/zlib.h
++++ b/include/u-boot/zlib.h
+@@ -110,6 +110,12 @@ extern "C" {
+ #  define voidp                 z_voidp
+ #endif
+ 
++#if defined(ZLIB_CONST) && !defined(z_const)
++#  define z_const const
++#else
++#  define z_const
++#endif
++
+ #if defined(__MSDOS__) && !defined(MSDOS)
+ #  define MSDOS
+ #endif
+@@ -710,6 +716,32 @@ ZEXTERN  uInt ZEXPORT crc32  OF((uInt crc, const Bytef *buf, uInt len));
+      if (crc != original_crc) error();
+ */
+ 
++ZEXTERN int ZEXPORT uncompress OF((Bytef *dest, uLongf *destLen,
++				   const Bytef *source, uLong sourceLen));
++/*
++     Decompresses the source buffer into the destination buffer.  sourceLen is
++   the byte length of the source buffer.  Upon entry, destLen is the total size
++   of the destination buffer, which must be large enough to hold the entire
++   uncompressed data.  (The size of the uncompressed data must have been saved
++   previously by the compressor and transmitted to the decompressor by some
++   mechanism outside the scope of this compression library.) Upon exit, destLen
++   is the actual size of the uncompressed data.
++
++     uncompress returns Z_OK if success, Z_MEM_ERROR if there was not
++   enough memory, Z_BUF_ERROR if there was not enough room in the output
++   buffer, or Z_DATA_ERROR if the input data was corrupted or incomplete.  In
++   the case where there is not enough room, uncompress() will fill the output
++   buffer with the uncompressed data up to that point.
++*/
++
++ZEXTERN int ZEXPORT uncompress2 OF((Bytef *dest, uLongf *destLen,
++				    const Bytef *source, uLong *sourceLen));
++/*
++     Same as uncompress, except that sourceLen is a pointer, where the
++   length of the source is *sourceLen.  On return, *sourceLen is the number of
++   source bytes consumed.
++*/
++
+ ZEXTERN int ZEXPORT inflateInit2_ OF((z_streamp strm, int  windowBits,
+                                       const char *version, int stream_size));
+ #define inflateInit(strm) \
+diff --git a/lib/Kconfig b/lib/Kconfig
+index 965cf7bc..26410eb5 100644
+--- a/lib/Kconfig
++++ b/lib/Kconfig
+@@ -398,6 +398,13 @@ config GZIP
+ 	help
+ 	  This enables support for GZIP compression algorithm.
+ 
++config ZLIB_UNCOMPRESS
++	bool "Enables zlib's uncompress() functionality"
++	help
++	  This enables an extra zlib functionality: the uncompress() function,
++	  which decompresses data from a buffer into another, knowing their
++	  sizes. Unlike gunzip(), there is no header parsing.
++
+ config ZLIB
+ 	bool
+ 	default y
+diff --git a/lib/zlib/inftrees.c b/lib/zlib/inftrees.c
+index b71b9695..caee502f 100644
+--- a/lib/zlib/inftrees.c
++++ b/lib/zlib/inftrees.c
+@@ -50,7 +50,7 @@ int inflate_table(codetype type, unsigned short FAR *lens, unsigned codes,
+     code FAR *next;             /* next available space in table */
+     const unsigned short FAR *base;     /* base value table to use */
+     const unsigned short FAR *extra;    /* extra bits table to use */
+-    int end;                    /* use base and extra for symbol > end */
++    unsigned match;             /* use base and extra for symbol >= match */
+     unsigned short count[MAXBITS+1];    /* number of codes of each length */
+     unsigned short offs[MAXBITS+1];     /* offsets in table for each length */
+     static const unsigned short lbase[31] = { /* Length codes 257..285 base */
+@@ -178,19 +178,17 @@ int inflate_table(codetype type, unsigned short FAR *lens, unsigned codes,
+     switch (type) {
+     case CODES:
+         base = extra = work;    /* dummy value--not used */
+-        end = 19;
++        match = 20;
+         break;
+     case LENS:
+         base = lbase;
+-        base -= 257;
+         extra = lext;
+-        extra -= 257;
+-        end = 256;
++        match = 257;
+         break;
+     default:            /* DISTS */
+         base = dbase;
+         extra = dext;
+-        end = -1;
++        match = 0;
+     }
+ 
+     /* initialize state for loop */
+@@ -212,13 +210,12 @@ int inflate_table(codetype type, unsigned short FAR *lens, unsigned codes,
+     for (;;) {
+         /* create table entry */
+         this.bits = (unsigned char)(len - drop);
+-        if ((int)(work[sym]) < end) {
++        if (work[sym] + 1 < match) {
+             this.op = (unsigned char)0;
+             this.val = work[sym];
+-        }
+-        else if ((int)(work[sym]) > end) {
+-            this.op = (unsigned char)(extra[work[sym]]);
+-            this.val = base[work[sym]];
++        } else if (work[sym] >= match) {
++            this.op = (unsigned char)(extra[work[sym] - match]);
++            this.val = base[work[sym] - match];
+         }
+         else {
+             this.op = (unsigned char)(32 + 64);         /* end of block */
+diff --git a/lib/zlib/trees.c b/lib/zlib/trees.c
+index a0078d08..3e09517e 100644
+--- a/lib/zlib/trees.c
++++ b/lib/zlib/trees.c
+@@ -7,27 +7,28 @@
+ /*
+  *  ALGORITHM
+  *
+- *      The "deflation" process uses several Huffman trees. The more
+- *      common source values are represented by shorter bit sequences.
++ *	The "deflation" process uses several Huffman trees. The more
++ *	common source values are represented by shorter bit sequences.
+  *
+- *      Each code tree is stored in a compressed form which is itself
+- * a Huffman encoding of the lengths of all the code strings (in
+- * ascending order by source values).  The actual code strings are
+- * reconstructed from the lengths in the inflate process, as described
+- * in the deflate specification.
++ *	Each code tree is stored in a compressed form which is itself
++ *	a Huffman encoding of the lengths of all the code strings (in
++ *	ascending order by source values). The actual code strings are
++ *	reconstructed from the lengths in the inflate process, as
++ *	described in the deflate specification.
+  *
+  *  REFERENCES
+  *
+- *      Deutsch, L.P.,"'Deflate' Compressed Data Format Specification".
+- *      Available in ftp.uu.net:/pub/archiving/zip/doc/deflate-1.1.doc
++ *	Deutsch, P.
++ *	    RFC 1951, DEFLATE Compressed Data Format Specification version 1.3
++ *	    https://tools.ietf.org/html/rfc1951, 1996
+  *
+- *      Storer, James A.
+- *          Data Compression:  Methods and Theory, pp. 49-50.
+- *          Computer Science Press, 1988.  ISBN 0-7167-8156-5.
++ *	Storer, James A.
++ *	    Data Compression:  Methods and Theory, pp. 49-50.
++ *	    Computer Science Press, 1988.  ISBN 0-7167-8156-5.
+  *
+- *      Sedgewick, R.
+- *          Algorithms, p290.
+- *          Addison-Wesley, 1983. ISBN 0-201-06672-6.
++ *	Sedgewick, R.
++ *	    Algorithms, p290.
++ *	    Addison-Wesley, 1983. ISBN 0-201-06672-6.
+  */
+ 
+ /* @(#) $Id$ */
+diff --git a/lib/zlib/uncompr.c b/lib/zlib/uncompr.c
+new file mode 100644
+index 00000000..21e93933
+--- /dev/null
++++ b/lib/zlib/uncompr.c
+@@ -0,0 +1,97 @@
++/* uncompr.c -- decompress a memory buffer
++ * Copyright (C) 1995-2003, 2010, 2014, 2016 Jean-loup Gailly, Mark Adler
++ * For conditions of distribution and use, see copyright notice in zlib.h
++ */
++
++/* @(#) $Id$ */
++
++#define ZLIB_INTERNAL
++#include "zlib.h"
++
++/* ===========================================================================
++     Decompresses the source buffer into the destination buffer.  *sourceLen is
++   the byte length of the source buffer. Upon entry, *destLen is the total size
++   of the destination buffer, which must be large enough to hold the entire
++   uncompressed data. (The size of the uncompressed data must have been saved
++   previously by the compressor and transmitted to the decompressor by some
++   mechanism outside the scope of this compression library.) Upon exit,
++   *destLen is the size of the decompressed data and *sourceLen is the number
++   of source bytes consumed. Upon return, source + *sourceLen points to the
++   first unused input byte.
++
++     uncompress returns Z_OK if success, Z_MEM_ERROR if there was not enough
++   memory, Z_BUF_ERROR if there was not enough room in the output buffer, or
++   Z_DATA_ERROR if the input data was corrupted, including if the input data is
++   an incomplete zlib stream.
++*/
++int ZEXPORT uncompress2(dest, destLen, source, sourceLen)
++	Bytef *dest;
++	uLongf *destLen;
++	const Bytef *source;
++	uLong *sourceLen;
++
++{
++	z_stream stream;
++	int err;
++	const uInt max = (uInt)-1;
++	uLong len, left;
++	/* for detection of incomplete stream when *destLen == 0 */
++	Byte buf[1];
++
++	len = *sourceLen;
++	if (*destLen) {
++		left = *destLen;
++		*destLen = 0;
++	} else {
++		left = 1;
++		dest = buf;
++	}
++
++	stream.next_in = (z_const Bytef *)source;
++	stream.avail_in = 0;
++	stream.zalloc = (alloc_func)0;
++	stream.zfree = (free_func)0;
++	stream.opaque = (voidpf)0;
++
++	err = inflateInit(&stream);
++	if (err != Z_OK)
++		return err;
++
++	stream.next_out = dest;
++	stream.avail_out = 0;
++
++	do {
++		if (stream.avail_out == 0) {
++			stream.avail_out = left > (uLong)max ? max : (uInt)left;
++			left -= stream.avail_out;
++		}
++
++		if (stream.avail_in == 0) {
++			stream.avail_in = len > (uLong)max ? max : (uInt)len;
++			len -= stream.avail_in;
++		}
++
++		err = inflate(&stream, Z_NO_FLUSH);
++	} while (err == Z_OK);
++
++	*sourceLen -= len + stream.avail_in;
++	if (dest != buf)
++		*destLen = stream.total_out;
++	else if (stream.total_out && err == Z_BUF_ERROR)
++		left = 1;
++
++	inflateEnd(&stream);
++	return err == Z_STREAM_END ? Z_OK :
++		err == Z_NEED_DICT ? Z_DATA_ERROR  :
++		err == Z_BUF_ERROR && left + stream.avail_out ? Z_DATA_ERROR :
++		err;
++}
++
++int ZEXPORT uncompress(dest, destLen, source, sourceLen)
++	Bytef *dest;
++	uLongf *destLen;
++	const Bytef *source;
++	uLong sourceLen;
++{
++	return uncompress2(dest, destLen, source, &sourceLen);
++}
+diff --git a/lib/zlib/zlib.c b/lib/zlib/zlib.c
+index 7e157029..90e05e7d 100644
+--- a/lib/zlib/zlib.c
++++ b/lib/zlib/zlib.c
+@@ -30,3 +30,6 @@
+ #include "inflate.c"
+ #include "zutil.c"
+ #include "adler32.c"
++#if IS_ENABLED(CONFIG_ZLIB_UNCOMPRESS)
++#include "uncompr.c"
++#endif
+diff --git a/lib/zlib/zutil.c b/lib/zlib/zutil.c
+index 227343e4..609aac55 100644
+--- a/lib/zlib/zutil.c
++++ b/lib/zlib/zutil.c
+@@ -6,6 +6,7 @@
+ /* @(#) $Id$ */
+ 
+ #include "zutil.h"
++#include <hang.h>
+ 
+ #ifndef NO_DUMMY_DECL
+ struct internal_state      {int dummy;}; /* for buggy compilers */
+@@ -34,7 +35,7 @@ void z_error (m)
+     char *m;
+ {
+ 	fprintf(stderr, "%s\n", m);
+-	hang ();
++	hang();
+ }
+ #endif
+ 
+diff --git a/test/py/tests/test_fs/test_squashfs/sqfs_common.py b/test/py/tests/test_fs/test_squashfs/sqfs_common.py
+new file mode 100644
+index 00000000..c96f92c1
+--- /dev/null
++++ b/test/py/tests/test_fs/test_squashfs/sqfs_common.py
+@@ -0,0 +1,76 @@
++# SPDX-License-Identifier: GPL-2.0
++# Copyright (C) 2020 Bootlin
++# Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++
++import os
++import random
++import string
++import subprocess
++
++def sqfs_get_random_letters(size):
++    letters = []
++    for i in range(0, size):
++            letters.append(random.choice(string.ascii_letters))
++
++    return ''.join(letters)
++
++def sqfs_generate_file(path, size):
++    content = sqfs_get_random_letters(size)
++    file = open(path, "w")
++    file.write(content)
++    file.close()
++
++class Compression:
++    def __init__(self, name, files, sizes, block_size = 4096):
++        self.name = name
++        self.files = files
++        self.sizes = sizes
++        self.mksquashfs_opts = " -b " + str(block_size) + " -comp " + self.name
++
++    def add_opt(self, opt):
++        self.mksquashfs_opts += " " + opt
++
++    def gen_image(self, build_dir):
++        src = os.path.join(build_dir, "sqfs_src/")
++        os.mkdir(src)
++        for (f, s) in zip(self.files, self.sizes):
++            sqfs_generate_file(src + f, s)
++
++        # the symbolic link always targets the first file
++        os.symlink(self.files[0], src + "sym")
++
++        sqfs_img = os.path.join(build_dir, "sqfs-" + self.name)
++        i_o = src + " " + sqfs_img
++        opts = self.mksquashfs_opts
++        try:
++            subprocess.run(["mksquashfs " + i_o + opts], shell = True, check = True)
++        except:
++            print("mksquashfs error. Compression type: " + self.name)
++            raise RuntimeError
++
++    def clean_source(self, build_dir):
++        src = os.path.join(build_dir, "sqfs_src/")
++        for f in self.files:
++            os.remove(src + f)
++        os.remove(src + "sym")
++        os.rmdir(src)
++
++    def cleanup(self, build_dir):
++        self.clean_source(build_dir)
++        sqfs_img = os.path.join(build_dir, "sqfs-" + self.name)
++        os.remove(sqfs_img)
++
++files = ["blks_only", "blks_frag", "frag_only"]
++sizes = [4096, 5100, 100]
++gzip = Compression("gzip", files, sizes)
++zstd = Compression("zstd", files, sizes)
++lzo = Compression("lzo", files, sizes)
++
++# use fragment blocks for files larger than block_size
++gzip.add_opt("-always-use-fragments")
++zstd.add_opt("-always-use-fragments")
++
++# avoid fragments if lzo is used
++lzo.add_opt("-no-fragments")
++
++comp_opts = [gzip, zstd, lzo]
+diff --git a/test/py/tests/test_fs/test_squashfs/test_sqfs_load.py b/test/py/tests/test_fs/test_squashfs/test_sqfs_load.py
+new file mode 100644
+index 00000000..9e900623
+--- /dev/null
++++ b/test/py/tests/test_fs/test_squashfs/test_sqfs_load.py
+@@ -0,0 +1,46 @@
++# SPDX-License-Identifier: GPL-2.0
++# Copyright (C) 2020 Bootlin
++# Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++
++import os
++import pytest
++from sqfs_common import *
++
++@pytest.mark.boardspec('sandbox')
++@pytest.mark.buildconfigspec('cmd_fs_generic')
++@pytest.mark.buildconfigspec('cmd_squashfs')
++@pytest.mark.buildconfigspec('fs_squashfs')
++@pytest.mark.requiredtool('mksquashfs')
++def test_sqfs_load(u_boot_console):
++    build_dir = u_boot_console.config.build_dir
++    command = "sqfsload host 0 $kernel_addr_r "
++
++    for opt in comp_opts:
++        # generate and load the squashfs image
++        try:
++            opt.gen_image(build_dir)
++        except RuntimeError:
++            opt.clean_source(build_dir)
++            # skip unsupported compression types
++            continue
++
++        path = os.path.join(build_dir, "sqfs-" + opt.name)
++        output = u_boot_console.run_command("host bind 0 " + path)
++
++        output = u_boot_console.run_command(command + "xxx")
++        assert "File not found." in output
++
++        for (f, s) in zip(opt.files, opt.sizes):
++            try:
++                output = u_boot_console.run_command(command + f)
++                assert str(s) in output
++            except:
++                assert False
++                opt.cleanup(build_dir)
++
++        # test symbolic link
++        output = u_boot_console.run_command(command + "sym")
++        assert str(opt.sizes[0]) in output
++
++        # remove generated files
++        opt.cleanup(build_dir)
+diff --git a/test/py/tests/test_fs/test_squashfs/test_sqfs_ls.py b/test/py/tests/test_fs/test_squashfs/test_sqfs_ls.py
+new file mode 100644
+index 00000000..a0dca2e2
+--- /dev/null
++++ b/test/py/tests/test_fs/test_squashfs/test_sqfs_ls.py
+@@ -0,0 +1,36 @@
++# SPDX-License-Identifier: GPL-2.0
++# Copyright (C) 2020 Bootlin
++# Author: Joao Marcos Costa <joaomarcos.costa@bootlin.com>
++
++import os
++import pytest
++from sqfs_common import *
++
++@pytest.mark.boardspec('sandbox')
++@pytest.mark.buildconfigspec('cmd_fs_generic')
++@pytest.mark.buildconfigspec('cmd_squashfs')
++@pytest.mark.buildconfigspec('fs_squashfs')
++@pytest.mark.requiredtool('mksquashfs')
++def test_sqfs_ls(u_boot_console):
++    build_dir = u_boot_console.config.build_dir
++    for opt in comp_opts:
++        try:
++            opt.gen_image(build_dir)
++        except RuntimeError:
++            opt.clean_source(build_dir)
++            # skip unsupported compression types
++            continue
++        path = os.path.join(build_dir, "sqfs-" + opt.name)
++        output = u_boot_console.run_command("host bind 0 " + path)
++
++        try:
++            # list files in root directory
++            output = u_boot_console.run_command("sqfsls host 0")
++            assert str(len(opt.files) + 1) + " file(s), 0 dir(s)" in output
++            assert "<SYM>   sym" in output
++            output = u_boot_console.run_command("sqfsls host 0 xxx")
++            assert "** Cannot find directory. **" in output
++        except:
++            opt.cleanup(build_dir)
++            assert False
++        opt.cleanup(build_dir)
+-- 
+2.25.1
+
