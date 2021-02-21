@@ -1,0 +1,35 @@
+From f87ac6fa4a14fb9202232ee1c26ae797d1304f91 Mon Sep 17 00:00:00 2001
+From: Justin Schneck <jschneck@mac.com>
+Date: Sat, 20 Feb 2021 17:41:28 -0500
+Subject: [PATCH] limit speed of sdmmc1 to 48Mhz
+
+The WILC3000 seems to struggle with transferring large
+files when operating at max speed at 50Mhz. The driver
+would stop working and result in an error message
+
+cfg_indicate_rx: Receive unknown message
+
+After this message the wifi no longer functions.
+---
+ arch/arm/boot/dts/at91-sama5d27_wlsom1_ek.dts | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/arch/arm/boot/dts/at91-sama5d27_wlsom1_ek.dts b/arch/arm/boot/dts/at91-sama5d27_wlsom1_ek.dts
+index 56645bf6f..ae6328a3e 100644
+--- a/arch/arm/boot/dts/at91-sama5d27_wlsom1_ek.dts
++++ b/arch/arm/boot/dts/at91-sama5d27_wlsom1_ek.dts
+@@ -216,6 +216,11 @@
+ 	status = "okay";
+ };
+ 
++&sdmmc1 {
++	max-frequency=<4800000>;
++	status = "okay";
++};
++
+ &shutdown_controller {
+ 	atmel,shdwc-debouncer = <976>;
+ 	atmel,wakeup-rtc-timer;
+-- 
+2.25.1
+
