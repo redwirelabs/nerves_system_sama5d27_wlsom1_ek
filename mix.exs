@@ -1,7 +1,7 @@
 defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
   use Mix.Project
 
-  @github_organization "verypossible"
+  @github_organization "amclain"
   @app :nerves_system_sama5d27_wlsom1_ek
   @version Path.join(__DIR__, "VERSION")
            |> File.read!()
