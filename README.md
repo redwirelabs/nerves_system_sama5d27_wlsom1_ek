@@ -36,6 +36,17 @@ by loading the kernel module.
 iex> System.cmd("modprobe", ["wilc-sdio"])
 ```
 
+# Ethernet
+
+A unique hardware address for the eth0 interface is programmed into the QSPI
+flash memory from the factory and is read set by U-Boot. Inorder to read from
+the flash memory, you will need to ensure the QSPI flash is being powered by
+removing the shunt from jumper J8 labeled "Disable Boot".
+
+The hardware address of the interface can also be forced by setting the U-Boot
+environment variable `ethaddr`. If neither of these locations are accessible,
+Linux will assign a random hardware address to the interface on every boot.
+
 # Supported USB WiFi Devices
 
 The base image includes drivers and firmware for Ralink RT53xx (rt2800usb
