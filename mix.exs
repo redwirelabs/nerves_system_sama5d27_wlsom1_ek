@@ -11,7 +11,7 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
     [
       app: @app,
       version: @version,
-      elixir: "~> 1.6",
+      elixir: "~> 1.14",
       compilers: Mix.compilers() ++ [:nerves_package],
       nerves_package: nerves_package(),
       description: description(),
@@ -49,11 +49,11 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
 
   defp deps do
     [
-      {:nerves, "~> 1.5.4 or ~> 1.6.0 or ~> 1.7.0", runtime: false},
-      {:nerves_system_br, "1.16.3", runtime: false},
-      {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "1.4.3", runtime: false},
+      {:nerves, "~> 1.5.4 or >= 1.6.0", runtime: false},
+      {:nerves_system_br, "1.21.2", runtime: false},
+      {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "~> 1.4.3", runtime: false},
       {:nerves_system_linter, "~> 0.4", runtime: false},
-      {:ex_doc, "~> 0.18", only: [:dev, :test], runtime: false}
+      {:ex_doc, "~> 0.29", only: [:dev, :test], runtime: false}
     ]
   end
 
