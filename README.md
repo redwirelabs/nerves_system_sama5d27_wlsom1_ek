@@ -16,6 +16,12 @@ https://www.microchip.com/DevelopmentTools/ProductDetails/PartNO/DM320117
 | Video                | Yes                             |
 | Camera Interface     | Yes - Parallel ISC              |
 
+### Docs
+
+- [ATSAMA5D27-WLSOM1-EK1 dev kit user guide](https://ww1.microchip.com/downloads/en/DeviceDoc/SAMA5D2-Wireless-SOM1-Kit-User's-Guide-50002931d.pdf)
+- [ATSAMA5D27-WLSOM1 datasheet](http://ww1.microchip.com/downloads/en/DeviceDoc/ATSAMA5D27-WLSOM1-Datasheet-60001590b.pdf)
+- [SAMA5D2 series datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/DS60001476B.pdf)
+
 # Using
 
 The most common way of using this Nerves System is create a project with `mix
@@ -26,6 +32,54 @@ for more information.
 If you need custom modifications to this system for your device, clone this
 repository and update as described in [Making custom
 systems](https://hexdocs.pm/nerves/systems.html#customizing-your-own-nerves-system)
+
+# GPIO
+
+The WLSOM1 exposes four banks of GPIO: `A`, `B`, `C`, `D`. The physical GPIO
+pins are numbered logically in sequence from `PA0` (`gpio0`) to
+`PD31` (`gpio127`) when exposed via sysfs or [`Circuits.GPIO`](https://hex.pm/packages/circuits_gpio).
+
+|  Pin  |  GPIO  |   |  Pin  |  GPIO  |   |  Pin  |  GPIO  |   |  Pin  |  GPIO  |
+|  ---  |  ----  | - |  ---  |  ----  | - |  ---  |  ----  | - |  ---  |  ----  |
+|  PA0  |  0  | |  PB0  |  32  | |  PC0  |  64  | |  PD0  |  96  |
+|  PA1  |  1  | |  PB1  |  33  | |  PC1  |  65  | |  PD1  |  97  |
+|  PA2  |  2  | |  PB2  |  34  | |  PC2  |  66  | |  PD2  |  98  |
+|  PA3  |  3  | |  PB3  |  35  | |  PC3  |  67  | |  PD3  |  99  |
+|  PA4  |  4  | |  PB4  |  36  | |  PC4  |  68  | |  PD4  |  100  |
+|  PA5  |  5  | |  PB5  |  37  | |  PC5  |  69  | |  PD5  |  101  |
+|  PA6  |  6  | |  PB6  |  38  | |  PC6  |  70  | |  PD6  |  102  |
+|  PA7  |  7  | |  PB7  |  39  | |  PC7  |  71  | |  PD7  |  103  |
+|  PA8  |  8  | |  PB8  |  40  | |  PC8  |  72  | |  PD8  |  104  |
+|  PA9  |  9  | |  PB9  |  41  | |  PC9  |  73  | |  PD9  |  105  |
+|  PA10  |  10  | |  PB10  |  42  | |  PC10  |  74  | |  PD10  |  106  |
+|  PA11  |  11  | |  PB11  |  43  | |  PC11  |  75  | |  PD11  |  107  |
+|  PA12  |  12  | |  PB12  |  44  | |  PC12  |  76  | |  PD12  |  108  |
+|  PA13  |  13  | |  PB13  |  45  | |  PC13  |  77  | |  PD13  |  109  |
+|  PA14  |  14  | |  PB14  |  46  | |  PC14  |  78  | |  PD14  |  110  |
+|  PA15  |  15  | |  PB15  |  47  | |  PC15  |  79  | |  PD15  |  111  |
+|  PA16  |  16  | |  PB16  |  48  | |  PC16  |  80  | |  PD16  |  112  |
+|  PA17  |  17  | |  PB17  |  49  | |  PC17  |  81  | |  PD17  |  113  |
+|  PA18  |  18  | |  PB18  |  50  | |  PC18  |  82  | |  PD18  |  114  |
+|  PA19  |  19  | |  PB19  |  51  | |  PC19  |  83  | |  PD19  |  115  |
+|  PA20  |  20  | |  PB20  |  52  | |  PC20  |  84  | |  PD20  |  116  |
+|  PA21  |  21  | |  PB21  |  53  | |  PC21  |  85  | |  PD21  |  117  |
+|  PA22  |  22  | |  PB22  |  54  | |  PC22  |  86  | |  PD22  |  118  |
+|  PA23  |  23  | |  PB23  |  55  | |  PC23  |  87  | |  PD23  |  119  |
+|  PA24  |  24  | |  PB24  |  56  | |  PC24  |  88  | |  PD24  |  120  |
+|  PA25  |  25  | |  PB25  |  57  | |  PC25  |  89  | |  PD25  |  121  |
+|  PA26  |  26  | |  PB26  |  58  | |  PC26  |  90  | |  PD26  |  122  |
+|  PA27  |  27  | |  PB27  |  59  | |  PC27  |  91  | |  PD27  |  123  |
+|  PA28  |  28  | |  PB28  |  60  | |  PC28  |  92  | |  PD28  |  124  |
+|  PA29  |  29  | |  PB29  |  61  | |  PC29  |  93  | |  PD29  |  125  |
+|  PA30  |  30  | |  PB30  |  62  | |  PC30  |  94  | |  PD30  |  126  |
+|  PA31  |  31  | |  PB31  |  63  | |  PC31  |  95  | |  PD31  |  127  |
+
+# UART
+
+|  Header  |  Device  |
+|  ------  |  ------  |
+|  mikro BUS 1  |  `ttyS3`  |
+|  mikro BUS 2  |  `ttyS2`  |
 
 # Wifi
 
@@ -107,4 +161,3 @@ file location by setting the environment variable
 `NERVES_PROVISIONING=/path/to/provisioning.conf`. The default provisioning.conf
 will set the `nerves_serial_number`, if you override the location to this file,
 you will be responsible for setting this yourself.
-
