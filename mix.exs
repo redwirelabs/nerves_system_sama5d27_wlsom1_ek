@@ -51,7 +51,7 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
     [
       {:nerves, "~> 1.5.4 or >= 1.6.0", runtime: false},
       {:nerves_system_br, "1.21.2", runtime: false},
-      {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "~> 1.4.3", runtime: false},
+      {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "~> 1.6.1", runtime: false},
       {:nerves_system_linter, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.29", only: [:dev, :test], runtime: false}
     ]
