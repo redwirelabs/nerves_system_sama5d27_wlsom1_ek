@@ -68,6 +68,13 @@ pins are numbered logically in sequence from `PA0` (`gpio0`) to
 |  PA30  |  30  | |  PB30  |  62  | |  PC30  |  94  | |  PD30  |  126  |
 |  PA31  |  31  | |  PB31  |  63  | |  PC31  |  95  | |  PD31  |  127  |
 
+# UART
+
+|  Header  |  Device  |
+|  ------  |  ------  |
+|  mikro BUS 1  |  `ttyS3`  |
+|  mikro BUS 2  |  `ttyS2`  |
+
 # Wifi
 
 The WLSOM1 contains a ATWILC3000 Wifi / Bluetooth module. Wifi can be enabled
