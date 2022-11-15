@@ -16,6 +16,7 @@ workflows:
           exec:
             <<: *exec
           context: nerves-build
+          download-site-url: http://dl.alexmclain.com
           filters:
             tags:
               only: /.*/
