@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.4.0
+
+This version brings several dependencies up to date:
+- Erlang `OTP 25`
+- Linux kernel `linux4microchip-2022.10`
+- AT bootloader `v4.0.5`
+- Toolchain `1.6.1`
+- GCC 11
+
+The logical GPIO numbers have been updated to be compatible with [Circuits.GPIO](https://github.com/elixir-circuits/circuits_gpio).
+For example, pin `PA1` is logically `gpio1`. See the [GPIO section](https://github.com/amclain/nerves_system_sama5d27_wlsom1_ek#gpio)
+in the readme for a full chart of the mappings.
+
+* Dependencies
+  * [nerves_system_br: v1.21.2](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.21.2)
+  * [Erlang/OTP 25.1.2](https://erlang.org/download/OTP-25.1.2.README)
+
+**Known Issues**
+
+The WILC3000 Wi-Fi / BLE module does not appear to be working in this version.
+The `wilc-sdio` driver loads, but the module doesn't show up as `wlan0`.
+
 ## v0.3.0
 
 This version bumps the toolchain to v1.4.3 which includes updates to GCC 10.
