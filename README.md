@@ -16,6 +16,12 @@ https://www.microchip.com/DevelopmentTools/ProductDetails/PartNO/DM320117
 | Video                | Yes                             |
 | Camera Interface     | Yes - Parallel ISC              |
 
+### Docs
+
+- [ATSAMA5D27-WLSOM1-EK1 dev kit user guide](https://ww1.microchip.com/downloads/en/DeviceDoc/SAMA5D2-Wireless-SOM1-Kit-User's-Guide-50002931d.pdf)
+- [ATSAMA5D27-WLSOM1 datasheet](http://ww1.microchip.com/downloads/en/DeviceDoc/ATSAMA5D27-WLSOM1-Datasheet-60001590b.pdf)
+- [SAMA5D2 series datasheet](https://ww1.microchip.com/downloads/en/DeviceDoc/DS60001476B.pdf)
+
 # Using
 
 The most common way of using this Nerves System is create a project with `mix
