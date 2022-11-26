@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.1
+
+Update your application's [nerves_runtime](https://hex.pm/packages/nerves_runtime) to `0.13.3` or greater if you
+need the fix for `Nerves.Runtime.poweroff`.
+
+* Changes
+  * Enable the U-Boot console
+  * Update `nerves_system_br` for:
+    * `nerves_heart` changes to the watchdog for reboots and poweroff
+    * Buildroot bug/security fixes
+
+* Updated dependencies
+  * [nerves_system_br: v1.21.4](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.21.4)
+
 ## v0.4.0
 
 This version brings several dependencies up to date:
