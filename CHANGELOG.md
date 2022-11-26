@@ -14,6 +14,11 @@ need the fix for `Nerves.Runtime.poweroff`.
 * Updated dependencies
   * [nerves_system_br: v1.21.4](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.21.4)
 
+**Known Issues**
+
+The WILC3000 Wi-Fi / BLE module does not appear to be working in this version.
+The `wilc-sdio` driver loads, but the module doesn't show up as `wlan0`.
+
 ## v0.4.0
 
 This version brings several dependencies up to date:
