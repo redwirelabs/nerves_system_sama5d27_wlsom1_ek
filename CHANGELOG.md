@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.2
+
+* Changes
+  * Add support for WILC3000 Wi-Fi + Bluetooth module
+  * Update U-Boot to [linux4sam-2022.10](https://github.com/linux4sam/u-boot-at91/releases/tag/linux4sam-2022.10)
+
 ## v0.4.1
 
 Update your application's [nerves_runtime](https://hex.pm/packages/nerves_runtime) to `0.13.3` or greater if you
