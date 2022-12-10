@@ -86,8 +86,16 @@ pins are numbered logically in sequence from `PA0` (`gpio0`) to
 The WLSOM1 contains a ATWILC3000 Wifi / Bluetooth module. Wifi can be enabled
 by loading the kernel module.
 
-```text
-iex> System.cmd("modprobe", ["wilc-sdio"])
+```elixir
+iex> cmd "modprobe wilc-sdio"
+```
+
+If the Wi-Fi module is set to access point (AP) mode, it will need to be reset
+if its VintageNet configuration is updated at runtime.
+
+```elixir
+cmd "rmmod wilc-sdio"
+cmd "modprobe wilc-sdio"
 ```
 
 # Ethernet

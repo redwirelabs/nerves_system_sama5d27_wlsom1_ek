@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.4.3
+
+This release fixes issues with the WILC3000 Wi-Fi module becoming unresponsive
+and potentially triggering the watchdog in access point (AP) mode. After
+reconfiguring the interface at runtime when it's in AP mode, reset the
+module with:
+
+```elixir
+cmd "rmmod wilc-sdio"
+cmd "modprobe wilc-sdio"
+```
+
+* Changes
+  * Switch to the mainline Linux WILC driver
+
 ## v0.4.2
 
 * Changes
