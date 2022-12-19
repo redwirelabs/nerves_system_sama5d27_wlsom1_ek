@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.4.4
+
+This release updates the board identifier to look for the ATECC crypto chip on
+the SOM and use it if it is available. The MAC address is used as a fallback
+if the SOM variant of the processor is not being used, and the identifier can
+be set manually with the U-Boot environment variable `nerves_serial_number`.
+
+* Changes
+  * Check ATECC crypto chip for board ID
+
+* Updated dependencies
+  * [nerves_system_br: v1.21.6](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.21.6)
+  * [Erlang/OTP 25.2](https://erlang.org/download/OTP-25.2.README)
+
 ## v0.4.3
 
 This release fixes issues with the WILC3000 Wi-Fi module becoming unresponsive
