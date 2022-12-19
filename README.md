@@ -169,3 +169,16 @@ file location by setting the environment variable
 `NERVES_PROVISIONING=/path/to/provisioning.conf`. The default provisioning.conf
 will set the `nerves_serial_number`, if you override the location to this file,
 you will be responsible for setting this yourself.
+
+## Hostname
+
+By default the hostname will only include the last 4 digits of the board
+identifier. If you would rather use the entire identifier, set the following
+in your `config/target.exs` file:
+
+```elixir
+config :nerves,
+  erlinit: [
+    uniqueid_exec: "boardid"
+  ]
+```
