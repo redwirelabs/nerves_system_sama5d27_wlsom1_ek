@@ -81,9 +81,9 @@ pins are numbered logically in sequence from `PA0` (`gpio0`) to
 |  mikro BUS 1  |  `ttyS3`  |
 |  mikro BUS 2  |  `ttyS2`  |
 
-# Wifi
+# Wi-Fi
 
-The WLSOM1 contains a ATWILC3000 Wifi / Bluetooth module. Wifi can be enabled
+The WLSOM1 contains a ATWILC3000 Wi-Fi / Bluetooth module. Wi-Fi can be enabled
 by loading the kernel module.
 
 ```elixir
@@ -109,18 +109,18 @@ The hardware address of the interface can also be forced by setting the U-Boot
 environment variable `ethaddr`. If neither of these locations are accessible,
 Linux will assign a random hardware address to the interface on every boot.
 
-# Supported USB WiFi Devices
+# Supported USB Wi-Fi Devices
 
 The base image includes drivers and firmware for Ralink RT53xx (rt2800usb
 driver) and RealTek RTL8712U (r8712u driver) devices.
 
-We are still working out which subset of all possible WiFi dongles to support in
-our images. At some point, we may have the option to support all dongles and
+We are still working out which subset of all possible Wi-Fi dongles to support
+in our images. At some point, we may have the option to support all dongles and
 selectively install modules at packaging time, but until then, these drivers and
 their associated firmware blobs add significantly to Nerves release images.
 
-If you are unsure what driver your WiFi dongle requires, run Debian and
-configure WiFi for your device. At a shell prompt, run lsmod to see which
+If you are unsure what driver your Wi-Fi dongle requires, run Debian and
+configure Wi-Fi for your device. At a shell prompt, run lsmod to see which
 drivers are loaded. Running dmesg may also give a clue. When using dmesg,
 reinsert the USB dongle to generate new log messages if you don't see them.
 
