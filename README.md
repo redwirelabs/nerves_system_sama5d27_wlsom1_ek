@@ -98,6 +98,83 @@ cmd "rmmod wilc-sdio"
 cmd "modprobe wilc-sdio"
 ```
 
+# Bluetooth
+
+The ATWILC3000 includes Bluetooth Low Energy capabilities that can be utilized
+after following a specific configuration and startup sequence. In general, there
+are two routes that can be taken to make use of Bluetooth in Nerves: [BlueZ](http://www.bluez.org/)
+and [BlueHeron](https://github.com/blue-heron/blue_heron). So far, only BlueZ
+has been tested on the WLSOM1.
+
+## BlueZ
+
+In order to use the BlueZ stack, there are a number of config options and
+packages that are required.
+
+Add these config options to the Linux defconfig:
+```
+CONFIG_BT_HCIUART=m
+CONFIG_BT_HCIUART_H4=y
+```
+
+Add these packages to `nerves_defconfig`:
+```
+BR2_PACKAGE_BLUEZ5_UTILS=y
+BR2_PACKAGE_BLUEZ5_UTILS_CLIENT=y
+BR2_PACKAGE_BLUEZ5_UTILS_TOOLS=y
+BR2_PACKAGE_BLUEZ5_UTILS_DEPRECATED=y
+```
+
+**Note:** The Bluetooth power up sequence requires _both_ `dbus-daemon`
+and `bluetoothd`. It is recommended to use either [MuonTrap](https://github.com/fhunleth/muontrap)
+or [Ports](https://hexdocs.pm/elixir/main/Port.html) for running them as
+background processes.
+
+Here is an example that uses Ports for the startup sequence:
+
+```elixir
+System.cmd("modprobe", ["wilc-sdio"])
+Process.sleep(5000)
+
+File.write("/dev/wilc_bt", "BT_POWER_UP")
+Process.sleep(1000)
+
+File.write("/dev/wilc_bt", "BT_DOWNLOAD_FW")
+Process.sleep(100)
+
+File.rm_rf("/run/messagebus.pid")
+File.mkdir_p("/run/dbus")
+
+Port.open(
+  {:spawn_executable, "/usr/bin/dbus-daemon"},
+  [:binary, :exit_status, :stderr_to_stdout,
+    args: ["--system", "--nofork"]]
+)
+
+System.cmd("hciattach", ["/dev/ttyS1", "any", "115200", "noflow", "nosleep"])
+Process.sleep(300)
+
+System.cmd("hciconfig", ["hci0", "up"])
+
+File.mkdir_p("/data/bluetooth")
+
+Port.open(
+  {:spawn_executable, "/usr/libexec/bluetooth/bluetoothd"},
+  [:binary, :exit_status, :stderr_to_stdout,
+    args: ["-p", "time", "-n", "-C", "--localstatedir=/data"]]
+)
+```
+
+`bluetoothctl` can be used to run various Bluetooth Low Energy operations.
+Here is an example of how to open a port for running `bluetoothctl`:
+
+```elixir
+bluetoothctl = Port.open(
+  {:spawn_executable, "/usr/bin/bluetoothctl"},
+  [:binary, :exit_status, :stderr_to_stdout]
+)
+```
+
 # Ethernet
 
 A unique hardware address for the eth0 interface is programmed into the QSPI
