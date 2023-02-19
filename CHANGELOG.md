@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.5
+
+* Updated dependencies
+  * [nerves_system_br: v1.22.2](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.22.2)
+  * [Erlang/OTP 25.2.2](https://erlang.org/download/OTP-25.2.2.README)
+
 ## v0.4.4
 
 This release updates the board identifier to look for the ATECC crypto chip on
