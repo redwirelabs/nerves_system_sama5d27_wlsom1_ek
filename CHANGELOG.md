@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.8
+
+This is a maintenance release that brings in OTP 26 and the 2023.04 release of
+Microchip's tooling.
+
+* Updated dependencies
+  * [nerves_system_br: v1.23.0](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.23.0)
+  * [Erlang/OTP 26.0](https://erlang.org/download/OTP-26.0.README)
+  * [linux-at91: 2023.04](https://github.com/linux4sam/linux-at91/releases/tag/linux4microchip-2023.04) - Linux kernel 6.1.22
+  * [u-boot-at91: 2023.04](https://github.com/linux4sam/u-boot-at91/releases/tag/linux4sam-2023.04)
+  * [at91bootstrap: v4.0.6](https://github.com/linux4sam/at91bootstrap/releases/tag/v4.0.6)
+
 ## v0.4.7
 
 This is a maintenance release.
