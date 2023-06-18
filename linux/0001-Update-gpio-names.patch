@@ -11,13 +11,13 @@ diff --git a/drivers/pinctrl/pinctrl-at91-pio4.c b/drivers/pinctrl/pinctrl-at91-
 index 706cb8e3e..cfeb69a03 100644
 --- a/drivers/pinctrl/pinctrl-at91-pio4.c
 +++ b/drivers/pinctrl/pinctrl-at91-pio4.c
-@@ -1142,9 +1142,9 @@ static int atmel_pinctrl_probe(struct platform_device *pdev)
+@@ -1171,9 +1171,9 @@ static int atmel_pinctrl_probe(struct platform_device *pdev)
  		atmel_pioctrl->pins[i]->line = line;
  
  		pin_desc[i].number = i;
 -		/* Pin naming convention: P(bank_name)(bank_pin_number). */
--		pin_desc[i].name = kasprintf(GFP_KERNEL, "P%c%d",
--					     bank + 'A', line);
+-		pin_desc[i].name = devm_kasprintf(&pdev->dev, GFP_KERNEL, "P%c%u",
+-						  bank + 'A', line);
 +		/* Pin naming convention: gpioX, where X is the number of the line plus
 +			 an offset for the bank that line is on (bank A = 0). */
 +		pin_desc[i].name = kasprintf(GFP_KERNEL, "gpio%d", (bank * 32) + line);
@@ -25,5 +25,5 @@ index 706cb8e3e..cfeb69a03 100644
  		group->name = group_names[i] = pin_desc[i].name;
  		group->pin = pin_desc[i].number;
 -- 
-2.34.1
+2.25.1
 
