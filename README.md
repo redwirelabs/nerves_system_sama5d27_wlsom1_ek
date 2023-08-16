@@ -98,6 +98,8 @@ cmd "rmmod wilc-sdio"
 cmd "modprobe wilc-sdio"
 ```
 
+*The Wi-Fi module supports 8 connected devices in access point (AP) mode.*
+
 # Bluetooth
 
 The ATWILC3000 includes Bluetooth Low Energy capabilities that can be utilized
