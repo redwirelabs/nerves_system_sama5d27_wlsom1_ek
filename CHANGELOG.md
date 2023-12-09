@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.0
+
+Production release.
+
+This version is identical to v0.4.8, but the number is being incremented to
+convey that it is suitable for production systems.
+
 ## v0.4.8
 
 This is a maintenance release that brings in OTP 26 and the 2023.04 release of
