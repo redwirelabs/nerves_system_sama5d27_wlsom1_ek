@@ -50,8 +50,8 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
   defp deps do
     [
       {:nerves, "~> 1.5.4 or >= 1.6.0", runtime: false},
-      {:nerves_system_br, "1.23.0", runtime: false},
-      {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "~> 1.8.0", runtime: false},
+      {:nerves_system_br, "1.25.1", runtime: false},
+      {:nerves_toolchain_armv7_nerves_linux_gnueabihf, "~> 13.2.0", runtime: false},
       {:nerves_system_linter, "~> 0.4", runtime: false},
       {:ex_doc, "~> 0.29", only: [:dev, :test], runtime: false}
     ]
