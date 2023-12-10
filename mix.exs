@@ -81,7 +81,7 @@ defmodule NervesSystemSAMA5D27WLSOM1EK.MixProject do
       "CHANGELOG.md",
       "Config.in",
       "external.mk",
-      "fwup-revert.conf",
+      "fwup-ops.conf",
       "fwup.conf",
       "LICENSE",
       "mix.exs",
