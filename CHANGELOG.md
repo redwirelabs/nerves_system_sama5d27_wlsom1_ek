@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.0.1
+
+Ownership transfer.
+
+The GitHub URL has changed in this version. There are no functionality changes.
+
 ## v1.0.0
 
 Production release.
