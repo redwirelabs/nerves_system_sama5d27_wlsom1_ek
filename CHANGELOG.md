@@ -1,5 +1,19 @@
 # Changelog
 
+## v1.1.0
+
+This release brings in `iptables` and the 2023.10 release of Microchip's tooling.
+
+* Changes
+  * Add [iptables](https://www.netfilter.org/projects/iptables/index.html) so that a firewall is included by default.
+
+* Updated dependencies
+  * [nerves_system_br: v1.27.2](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.27.2)
+  * [Erlang/OTP 26.2.5](https://erlang.org/download/OTP-26.2.5.README)
+  * [linux-at91: 2023.10](https://github.com/linux4microchip/linux/releases/tag/linux4microchip-2023.10) - Linux kernel 6.1.55
+  * [u-boot-mchp: 2023.10](https://github.com/linux4microchip/u-boot-mchp/releases/tag/linux4microchip-2023.10)
+  * [at91bootstrap: v4.0.8](https://github.com/linux4sam/at91bootstrap/releases/tag/v4.0.8)
+
 ## v1.0.1
 
 Ownership transfer.
