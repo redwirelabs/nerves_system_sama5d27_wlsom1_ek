@@ -1,0 +1,24 @@
+From 799af0c466c1c65ffccd51e367017415a15e83a3 Mon Sep 17 00:00:00 2001
+From: Jon Ringle <jringle@gridpoint.com>
+Date: Mon, 25 Mar 2024 09:34:50 -0400
+Subject: [PATCH] SFRBU: Fix RTC battery backup config
+
+---
+ device/sama5d2/sama5d2.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/device/sama5d2/sama5d2.c b/device/sama5d2/sama5d2.c
+index d18f3ce..49e02c3 100644
+--- a/device/sama5d2/sama5d2.c
++++ b/device/sama5d2/sama5d2.c
+@@ -487,6 +487,7 @@ void hw_init(void)
+ {
+ #ifdef CONFIG_BACKUP_VDDIN33
+ 	/* Switch backup area to VDDIN33. */
++	writel(AT91C_PSWBU_PSWKEY, AT91C_BASE_SFRBU + SFRBU_PSWBU);
+ 	sfrbu_select_ba_power_source(true);
+ #endif
+ 
+-- 
+2.34.1
+
