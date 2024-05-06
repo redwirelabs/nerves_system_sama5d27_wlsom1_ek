@@ -8,7 +8,7 @@ Subject: [PATCH] Update gpio names
  1 file changed, 3 insertions(+), 3 deletions(-)
 
 diff --git a/drivers/pinctrl/pinctrl-at91-pio4.c b/drivers/pinctrl/pinctrl-at91-pio4.c
-index 706cb8e3e..cfeb69a03 100644
+index adf63b63a352..33335a2ea9f4 100644
 --- a/drivers/pinctrl/pinctrl-at91-pio4.c
 +++ b/drivers/pinctrl/pinctrl-at91-pio4.c
 @@ -1171,9 +1171,9 @@ static int atmel_pinctrl_probe(struct platform_device *pdev)
@@ -21,9 +21,9 @@ index 706cb8e3e..cfeb69a03 100644
 +		/* Pin naming convention: gpioX, where X is the number of the line plus
 +			 an offset for the bank that line is on (bank A = 0). */
 +		pin_desc[i].name = kasprintf(GFP_KERNEL, "gpio%d", (bank * 32) + line);
+ 		if (!pin_desc[i].name)
+ 			return -ENOMEM;
  
- 		group->name = group_names[i] = pin_desc[i].name;
- 		group->pin = pin_desc[i].number;
 -- 
 2.25.1
 
