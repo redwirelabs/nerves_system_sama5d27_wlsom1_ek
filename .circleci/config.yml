@@ -15,15 +15,16 @@ workflows:
       - build-tools/get-br-dependencies:
           exec:
             <<: *exec
+          resource-class: small
           context: nerves-build
-          download-site-url: http://dl.alexmclain.com
+          download-site-url: http://dl.redwirelabs.com
           filters:
             tags:
               only: /.*/
       - build-tools/build-system:
           exec:
             <<: *exec
-          resource-class: large
+          resource-class: xlarge
           context: nerves-build
           requires:
             - build-tools/get-br-dependencies
