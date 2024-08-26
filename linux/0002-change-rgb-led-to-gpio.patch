@@ -1,0 +1,71 @@
+From bff8543d0b8bea5c13fc4cfb935afbb7e927f0e9 Mon Sep 17 00:00:00 2001
+From: Alex McLain <alex@alexmclain.com>
+Date: Sun, 25 Aug 2024 22:31:51 -0700
+Subject: [PATCH] Change RGB LED to GPIO instead of sysfs leds
+
+---
+ .../dts/microchip/at91-sama5d27_wlsom1_ek.dts | 48 ++++++++++---------
+ 1 file changed, 26 insertions(+), 22 deletions(-)
+
+diff --git a/arch/arm/boot/dts/microchip/at91-sama5d27_wlsom1_ek.dts b/arch/arm/boot/dts/microchip/at91-sama5d27_wlsom1_ek.dts
+index 15239834d..98d4da968 100644
+--- a/arch/arm/boot/dts/microchip/at91-sama5d27_wlsom1_ek.dts
++++ b/arch/arm/boot/dts/microchip/at91-sama5d27_wlsom1_ek.dts
+@@ -40,28 +40,32 @@ button-1 {
+ 		};
+ 	};
+ 
+-	leds {
+-		compatible = "gpio-leds";
+-		pinctrl-names = "default";
+-		pinctrl-0 = <&pinctrl_led_gpio_default>;
+-		status = "okay";
+-
+-		led-red {
+-			label = "red";
+-			gpios = <&pioA PIN_PA6 GPIO_ACTIVE_HIGH>;
+-		};
+-
+-		led-green {
+-			label = "green";
+-			gpios = <&pioA PIN_PA7 GPIO_ACTIVE_HIGH>;
+-		};
+-
+-		led-blue {
+-			label = "blue";
+-			gpios = <&pioA PIN_PA8 GPIO_ACTIVE_HIGH>;
+-			linux,default-trigger = "heartbeat";
+-		};
+-	};
++	// nerves_system_sama5d27_wlsom1_ek
++	// Freeing up the RGB LED for application use by Circuits.GPIO.
++	// Remove 0002-change-rgb-led-to-gpio.patch to use sysfs leds.
++	// 
++	// leds {
++	// 	compatible = "gpio-leds";
++	// 	pinctrl-names = "default";
++	// 	pinctrl-0 = <&pinctrl_led_gpio_default>;
++	// 	status = "okay";
++
++	// 	led-red {
++	// 		label = "red";
++	// 		gpios = <&pioA PIN_PA6 GPIO_ACTIVE_HIGH>;
++	// 	};
++
++	// 	led-green {
++	// 		label = "green";
++	// 		gpios = <&pioA PIN_PA7 GPIO_ACTIVE_HIGH>;
++	// 	};
++
++	// 	led-blue {
++	// 		label = "blue";
++	// 		gpios = <&pioA PIN_PA8 GPIO_ACTIVE_HIGH>;
++	// 		linux,default-trigger = "heartbeat";
++	// 	};
++	// };
+ };
+ 
+ &adc {
+-- 
+2.25.1
+
