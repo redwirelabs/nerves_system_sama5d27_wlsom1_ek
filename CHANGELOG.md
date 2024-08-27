@@ -1,5 +1,28 @@
 # Changelog
 
+## v2.0.0
+
+This is a major release that removes GPIO from sysfs since it is deprecated by the
+Linux kernel. The GPIO remapping from names to sequential numbers has also been
+removed. [Circuits GPIO](https://github.com/elixir-circuits/circuits_gpio) v2
+is now the recommended way to use the GPIO pins, which can be accessed by name
+(i.e. `PA6`). The GPIOs for the development kit can be found in the
+[ATSAMA5D27-WLSOM1-EK1 user's guide](https://ww1.microchip.com/downloads/aemDocuments/documents/MPU32/ProductDocuments/UserGuides/SAMA5D2-Wireless-SOM1-Kit-User%27s-Guide-50002931d.pdf).
+
+This release also updates Erlang to OTP 27.
+
+* Changes
+  * Remove GPIO from sysfs.
+  * Remove pinctrl-at91-pio4 sequential GPIO numeric mappings.
+  * Disabled the RGB LED heartbeat to free the GPIO for use in user space.
+
+* Updated dependencies
+  * [nerves_system_br: v1.28.2](https://github.com/nerves-project/nerves_system_br/releases/tag/v1.28.2)
+  * [Erlang/OTP 27.0.1](https://erlang.org/download/OTP-27.0.1.README)
+  * [linux-at91: 2024.04](https://github.com/linux4microchip/linux/releases/tag/linux4microchip-2024.04) - Linux kernel 6.6.23
+  * [u-boot-mchp: 2024.04](https://github.com/linux4microchip/u-boot-mchp/releases/tag/linux4microchip-2024.04)
+  * [at91bootstrap: v4.0.9](https://github.com/linux4sam/at91bootstrap/releases/tag/v4.0.9)
+
 ## v1.1.0
 
 This release brings in `iptables` and the 2023.10 release of Microchip's tooling.
